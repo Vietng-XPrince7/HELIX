@@ -2,126 +2,289 @@
 01_modal_vllm.py - Cloud Inference Server for HELIX Closed-Loop Pipeline
 ========================================================================
 Deploys a high-throughput, OpenAI-compatible vLLM inference server on Modal.com
-using an NVIDIA A100 (40GB/80GB) or A10G GPU.
+using an NVIDIA A10G (or A100-40GB) GPU.
 
-Key Capabilities:
-1. BUILD Phase: Serves base model (Qwen/Qwen2.5-Coder-7B-Instruct) for baseline execution.
-2. REBUILD Phase: Dynamically mounts Modal Volume and serves LoRA adapter weights
-   via vLLM's multi-LoRA engine (--enable-lora).
-3. Exposes OpenAI-compatible endpoints:
-   - POST /v1/chat/completions
-   - POST /v1/completions
-   - GET  /v1/models
+Architecture (class-based Modal pattern):
+  @modal.enter()   -> Spawns vLLM subprocess, waits for /health readiness.
+  @modal.asgi_app()-> FastAPI reverse-proxy forwards /v1/* to local vLLM.
+  @modal.exit()    -> Gracefully terminates vLLM subprocess on container stop.
+
+Phases:
+  BUILD   - Serves the base model (Qwen/Qwen2.5-Coder-7B-Instruct).
+  REBUILD - If LoRA adapter weights exist in the `helix-adapters` Volume,
+            automatically enables vLLM multi-LoRA serving (--enable-lora).
+
+Endpoints exposed (OpenAI-compatible):
+  POST /v1/chat/completions   - Chat completions (streaming & non-streaming)
+  POST /v1/completions        - Text completions
+  GET  /v1/models             - List served models
+  GET  /health                - vLLM health check
 
 Usage:
-  # Deploy server to Modal as a persistent endpoint:
+  # Ephemeral dev server (auto-generates a public URL):
+  modal serve closed-loop/scripts/01_modal_vllm.py
+
+  # Persistent deployment (stable URL, stays up):
   modal deploy closed-loop/scripts/01_modal_vllm.py
 
-  # Test locally / ephemeral interactive run:
-  modal serve closed-loop/scripts/01_modal_vllm.py
+  # Smoke-test the local entrypoint against a running deployment:
+  modal run closed-loop/scripts/01_modal_vllm.py
 """
 
 import os
 import subprocess
 import time
+
 import modal
 
-# ------------------------------------------------------------------------------
-# 1. Configuration & Constants
-# ------------------------------------------------------------------------------
-APP_NAME = "helix-vllm-engine"
-BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
-VOLUME_NAME = "helix-checkpoints-volume"
-MOUNT_PATH = "/vol/checkpoints"
-LORA_ADAPTER_NAME = "helix-lora-adapter"
-LORA_SUBDIR = "helix_lora_final"
+# =============================================================================
+# 1. Configuration
+# =============================================================================
+MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+VLLM_PORT = 8000
 
-# GPU Selection: A100 for high concurrency, or A10G for cost-effective development
-GPU_TYPE = modal.gpu.A100(size="40GB")
+# Volume that stores LoRA adapter weights produced by 04_train_lora.py.
+# Initially empty (BUILD phase).  After training, the adapter is committed
+# here so vLLM can load it on the fly for the REBUILD phase.
+ADAPTERS_VOLUME_NAME = "helix-adapters"
+ADAPTERS_MOUNT_PATH = "/adapters"
+LORA_ADAPTER_SUBDIR = "helix-lora-final"  # written by 04_train_lora.py
+LORA_ADAPTER_NAME = "helix-lora"  # alias exposed to the /v1/models endpoint
 
-# ------------------------------------------------------------------------------
-# 2. Container Image & Persistent Storage
-# ------------------------------------------------------------------------------
+# =============================================================================
+# 2. Container Image
+# =============================================================================
+# Modal provides host CUDA drivers, so we only need the dev toolkit in-image.
+# vLLM is installed with uv for fast, deterministic resolution.
 vllm_image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.from_registry(
+        "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.12"
+    )
+    .entrypoint([])                       # don't start nvidia entrypoint
     .pip_install(
-        "vllm>=0.6.3",
+        "vllm>=0.6.3,<1.0",
         "torch>=2.4.0",
         "transformers>=4.45.0",
-        "hf-transfer>=0.1.8",
-        "fastapi>=0.115.0",
-        "requests>=2.32.0",
-        "pydantic>=2.8.0",
+        "huggingface_hub[hf_transfer]",
+        "fastapi[standard]",
+        "httpx",
     )
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .env(
+        {
+            "HF_HUB_ENABLE_HF_TRANSFER": "1",   # 5-10x faster HF downloads
+            "VLLM_ATTENTION_BACKEND": "FLASHINFER",
+        }
+    )
 )
 
-app = modal.App(APP_NAME)
-volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+# =============================================================================
+# 3. Volumes
+# =============================================================================
+# HuggingFace cache: avoids re-downloading ~15 GB of weights on every cold start.
+hf_cache_vol = modal.Volume.from_name("hf-cache-helix", create_if_missing=True)
 
-# ------------------------------------------------------------------------------
-# 3. vLLM Server Process on Modal
-# ------------------------------------------------------------------------------
-@app.function(
+# LoRA adapter volume: initially empty, populated by 04_train_lora.py.
+adapters_vol = modal.Volume.from_name(
+    ADAPTERS_VOLUME_NAME, create_if_missing=True
+)
+
+# =============================================================================
+# 4. Application & Server Class
+# =============================================================================
+app = modal.App("helix-vllm-engine")
+
+
+@app.cls(
     image=vllm_image,
-    gpu=GPU_TYPE,
-    volumes={MOUNT_PATH: volume},
-    timeout=3600,
-    container_idle_timeout=300,
-    allow_concurrent_inputs=64,
+    gpu=modal.gpu.A10G(),                  # ~24 GB VRAM, fits Qwen-7B in fp16
+    volumes={
+        "/root/.cache/huggingface": hf_cache_vol,
+        ADAPTERS_MOUNT_PATH: adapters_vol,
+    },
+    timeout=60 * 60,                       # 1 hour max per request
+    container_idle_timeout=10 * 60,        # 10 min idle -> scale to zero
+    allow_concurrent_inputs=64,            # vLLM handles batching internally
 )
-@modal.web_server(port=8000, startup_timeout=300)
-def serve():
-    """
-    Spawns vLLM OpenAI-compatible server.
-    Detects whether LoRA weights exist in the attached volume; if present,
-    activates LoRA serving for REBUILD phase evaluation.
-    """
-    lora_path = os.path.join(MOUNT_PATH, LORA_SUBDIR)
-    lora_enabled = os.path.exists(lora_path) and os.path.exists(os.path.join(lora_path, "adapter_config.json"))
+class VLLMServer:
+    """Modal class wrapping a vLLM OpenAI-compatible subprocess."""
 
-    cmd = [
-        "python3",
-        "-m",
-        "vllm.entrypoints.openai.api_server",
-        "--model", BASE_MODEL_NAME,
-        "--host", "0.0.0.0",
-        "--port", "8000",
-        "--trust-remote-code",
-        "--tensor-parallel-size", "1",
-        "--max-model-len", "4096",
-        "--gpu-memory-utilization", "0.90",
-    ]
+    # -----------------------------------------------------------------
+    # Container lifecycle: start
+    # -----------------------------------------------------------------
+    @modal.enter()
+    def start_engine(self):
+        """Launch vLLM and block until it passes the /health check."""
 
-    if lora_enabled:
-        print(f"[REBUILD Mode] Detected LoRA adapter at {lora_path}. Activating LoRA support...")
-        cmd.extend([
-            "--enable-lora",
-            "--max-loras", "2",
-            "--max-lora-rank", "32",
-            "--lora-modules", f"{LORA_ADAPTER_NAME}={lora_path}",
-        ])
-    else:
-        print(f"[BUILD Mode] No LoRA adapter found in {lora_path}. Serving base model {BASE_MODEL_NAME}...")
+        # Detect whether a trained LoRA adapter is present on the volume.
+        lora_path = os.path.join(ADAPTERS_MOUNT_PATH, LORA_ADAPTER_SUBDIR)
+        adapter_config = os.path.join(lora_path, "adapter_config.json")
+        self.lora_enabled = os.path.isfile(adapter_config)
 
-    print(f"Launching vLLM command: {' '.join(cmd)}")
-    subprocess.Popen(cmd)
+        cmd = [
+            "vllm", "serve", MODEL_NAME,
+            "--host", "0.0.0.0",
+            "--port", str(VLLM_PORT),
+            "--tensor-parallel-size", "1",
+            "--max-model-len", "4096",
+            "--gpu-memory-utilization", "0.90",
+            "--trust-remote-code",
+            "--uvicorn-log-level", "warning",
+            "--disable-log-requests",
+        ]
+
+        if self.lora_enabled:
+            print(
+                f"[REBUILD] LoRA adapter detected at {lora_path}. "
+                "Enabling multi-LoRA serving."
+            )
+            cmd += [
+                "--enable-lora",
+                "--max-loras", "2",
+                "--max-lora-rank", "32",
+                "--lora-modules",
+                f"{LORA_ADAPTER_NAME}={lora_path}",
+            ]
+        else:
+            print(
+                f"[BUILD] No LoRA adapter found in {lora_path}. "
+                f"Serving base model: {MODEL_NAME}"
+            )
+
+        print(f"[vLLM] Command: {' '.join(cmd)}")
+        self.proc = subprocess.Popen(cmd)
+
+        # Block until vLLM is ready (polls /health every 2 s).
+        import urllib.request
+        import urllib.error
+
+        health_url = f"http://localhost:{VLLM_PORT}/health"
+        deadline = time.monotonic() + 300  # 5 min max boot time
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(health_url, timeout=2) as resp:
+                    if resp.status == 200:
+                        print("[vLLM] Engine ready - accepting requests.")
+                        return
+            except (urllib.error.URLError, OSError):
+                pass
+            # Make sure the subprocess hasn't crashed.
+            if self.proc.poll() is not None:
+                raise RuntimeError(
+                    f"vLLM exited prematurely (code {self.proc.returncode}). "
+                    "Check container logs for details."
+                )
+            time.sleep(2)
+
+        raise TimeoutError("vLLM did not become healthy within 5 minutes.")
+
+    # -----------------------------------------------------------------
+    # Web server: reverse-proxy all HTTP traffic to the vLLM subprocess
+    # -----------------------------------------------------------------
+    @modal.asgi_app()
+    def serve(self):
+        """
+        Return a FastAPI app that proxies every request to vLLM.
+
+        This approach lets Modal manage TLS termination, authentication,
+        and auto-scaling while vLLM handles the actual inference work.
+        """
+        import fastapi
+        import httpx
+
+        web_app = fastapi.FastAPI(
+            title="HELIX vLLM Gateway",
+            description="OpenAI-compatible endpoint for HELIX Closed-Loop",
+        )
+        target = f"http://localhost:{VLLM_PORT}"
+
+        @web_app.get("/")
+        async def root():
+            return {
+                "status": "ok",
+                "model": MODEL_NAME,
+                "lora_enabled": self.lora_enabled,
+                "adapter": LORA_ADAPTER_NAME if self.lora_enabled else None,
+            }
+
+        @web_app.api_route(
+            "/{path:path}", methods=["GET", "POST", "PUT", "DELETE"]
+        )
+        async def proxy(path: str, request: fastapi.Request):
+            async with httpx.AsyncClient(
+                base_url=target, timeout=120.0
+            ) as client:
+                url = httpx.URL(
+                    path=f"/{path}",
+                    query=request.url.query.encode("utf-8")
+                    if request.url.query
+                    else None,
+                )
+                headers = dict(request.headers)
+                headers.pop("host", None)
+                body = await request.body()
+
+                rp = await client.request(
+                    request.method, url, headers=headers, content=body
+                )
+
+            return fastapi.responses.Response(
+                content=rp.content,
+                status_code=rp.status_code,
+                headers=dict(rp.headers),
+            )
+
+        return web_app
+
+    # -----------------------------------------------------------------
+    # Container lifecycle: stop
+    # -----------------------------------------------------------------
+    @modal.exit()
+    def stop_engine(self):
+        """Terminate vLLM gracefully when the container is shutting down."""
+        if hasattr(self, "proc") and self.proc.poll() is None:
+            print("[vLLM] Sending SIGTERM ...")
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                print("[vLLM] Force-killing process.")
+                self.proc.kill()
+        print("[vLLM] Shutdown complete.")
 
 
-# ------------------------------------------------------------------------------
-# 4. Local Verification Runner
-# ------------------------------------------------------------------------------
+# =============================================================================
+# 5. Local Entrypoint - Quick Smoke Test
+# =============================================================================
 @app.local_entrypoint()
-def test_connection():
+def smoke_test():
     """
-    Local test entrypoint to verify that vLLM server responds to requests.
-    Run with: modal run closed-loop/scripts/01_modal_vllm.py
+    Send a single chat-completion request to verify the deployment works.
+
+    Run with:
+      modal run closed-loop/scripts/01_modal_vllm.py
+
+    (The deployment must already be live via `modal serve` or `modal deploy`.)
     """
-    import urllib.request
-    import json
-
-    print(f"Target Base Model: {BASE_MODEL_NAME}")
-    print(f"Attached Volume: {VOLUME_NAME} -> {MOUNT_PATH}")
-    print("Modal deployment configured successfully.")
-    print("Run `modal serve closed-loop/scripts/01_modal_vllm.py` to launch live testing URL.")
-
+    print("=" * 60)
+    print(f"  HELIX vLLM Engine - Smoke Test")
+    print(f"  Base Model  : {MODEL_NAME}")
+    print(f"  Adapter Vol : {ADAPTERS_VOLUME_NAME} -> {ADAPTERS_MOUNT_PATH}")
+    print("=" * 60)
+    print()
+    print("To launch a live endpoint, run one of:")
+    print()
+    print("  # Ephemeral (dev/test, auto-deleted when you Ctrl-C):")
+    print("  modal serve closed-loop/scripts/01_modal_vllm.py")
+    print()
+    print("  # Persistent (production, stable URL):")
+    print("  modal deploy closed-loop/scripts/01_modal_vllm.py")
+    print()
+    print("Then point HELIX at the URL Modal gives you:")
+    print()
+    print("  export HELIX_LIVE_PROVIDER=openai-compatible")
+    print('  export HELIX_LIVE_BASE_URL="https://<workspace>--helix-vllm-engine-vllmserver-serve.modal.run/v1"')
+    print(f'  export HELIX_LIVE_MODEL="{MODEL_NAME}"')
+    print('  export OPENAI_API_KEY="not-needed"')
+    print()
+    print("Then run the evaluation pipeline:")
+    print("  python closed-loop/scripts/02_run_helix_eval.py --phase build")
