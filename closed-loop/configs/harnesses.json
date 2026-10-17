@@ -1,0 +1,50 @@
+{
+  "description": "HELIX Closed-Loop 4 Representative Harness Configurations for Differential Evaluation & Sibling Trajectory Distillation",
+  "harnesses": [
+    {
+      "id": "minimal",
+      "recipe_id": "coding-agent.minimal",
+      "recipe_path": "recipes/minimal/recipe.json",
+      "role": "Minimal Harness (Zero scaffolding / Baseline minimum)",
+      "category": "minimal",
+      "context_strategy": "minimal-transcript",
+      "permission_strategy": "allow-echo-only",
+      "shell_policy": "disabled",
+      "notes": "Tối giản tuyệt đối, không có cơ chế quản lý session phức tạp hay shell execution. Phản ánh năng lực mộc (raw capability) của LLM."
+    },
+    {
+      "id": "pi-mono",
+      "recipe_id": "pi-mono",
+      "recipe_path": "recipes/pi-mono/recipe.json",
+      "role": "Pi Mono Harness (Standard Mono Baseline)",
+      "category": "standard",
+      "context_strategy": "pi-active-leaf-context",
+      "permission_strategy": "pi-extension-events",
+      "shell_policy": "node-process",
+      "notes": "Harness đơn cấu trúc với cơ chế active-leaf context management và event-driven permissions."
+    },
+    {
+      "id": "hermes-agent",
+      "recipe_id": "hermes-agent",
+      "recipe_path": "recipes/hermes-agent/recipe.json",
+      "role": "Hermes Agent Harness (Session-Oriented Structured)",
+      "category": "advanced",
+      "context_strategy": "hermes-stable-context-prompt-builder",
+      "permission_strategy": "hermes-shell-hooks",
+      "shell_policy": "python-subprocess",
+      "notes": "Biến thể Hermes Session với context builder ổn định qua từng turn và shell hook kiểm soát qua Python subprocess."
+    },
+    {
+      "id": "opencode",
+      "recipe_id": "opencode",
+      "recipe_path": "recipes/opencode/recipe.json",
+      "role": "OpenCode Harness (Feature-Rich Plugin System)",
+      "category": "complex",
+      "context_strategy": "opencode-prompt-context",
+      "permission_strategy": "opencode-plugin-hooks",
+      "shell_policy": "bun-dollar",
+      "notes": "Harness phức tạp và toàn diện nhất, có prompt context tối ưu, hook đa plugin và runtime Bun/Node process."
+    }
+  ]
+}
+
