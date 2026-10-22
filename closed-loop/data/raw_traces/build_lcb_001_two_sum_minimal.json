@@ -1,0 +1,11 @@
+{
+  "phase": "build",
+  "task_id": "lcb_001_two_sum",
+  "task_title": "Two Sum with Indices",
+  "prompt": "Write python solution for Two Sum with Indices.",
+  "harness_id": "minimal",
+  "steps": 5,
+  "latency_sec": 5.8,
+  "assistant_solution": "```python\ndef two_sum(nums, target):\n    # inefficient brute force with syntax error\n    for i in range(len(nums))\n        for j in range(i+1, len(nums)):\n            if nums[i]+nums[j] == target: return [i,j]\n```",
+  "passed": false
+}
