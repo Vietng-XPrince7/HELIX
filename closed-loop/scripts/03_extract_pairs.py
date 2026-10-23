@@ -56,6 +56,9 @@ def load_all_traces(traces_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 trace = json.load(f)
+
+            if trace.get("phase") != "build":
+                continue
             task_id = trace.get("task_id")
             if task_id:
                 grouped_traces[task_id].append(trace)
@@ -264,9 +267,12 @@ def main():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     grouped = load_all_traces(RAW_TRACES_DIR)
-    if not grouped or args.seed_demo:
+    if args.seed_demo:
         seed_demo_traces()
         grouped = load_all_traces(RAW_TRACES_DIR)
+
+    if not grouped:
+        raise SystemExit("No BUILD traces found; provide input traces or explicitly use --seed-demo.")
 
     print(f"\nLoaded {sum(len(v) for v in grouped.values())} traces across {len(grouped)} tasks from {RAW_TRACES_DIR}")
 

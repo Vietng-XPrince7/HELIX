@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -44,23 +45,6 @@ HARNESS_LABELS = {
     "opencode": "OpenCode (Complex Scaffolding)",
 }
 
-# Empirical reference metrics (reflecting paper findings and distillation dynamics)
-EMPIRICAL_BENCHMARK_DATA = {
-    "build": {
-        "minimal": {"pass_rate": 26.0, "avg_steps": 5.4, "avg_latency": 4.8},
-        "pi-mono": {"pass_rate": 58.0, "avg_steps": 3.8, "avg_latency": 3.6},
-        "hermes-agent": {"pass_rate": 68.0, "avg_steps": 2.9, "avg_latency": 3.1},
-        "opencode": {"pass_rate": 74.0, "avg_steps": 2.2, "avg_latency": 2.5},
-    },
-    "rebuild": {
-        "minimal": {"pass_rate": 66.0, "avg_steps": 2.6, "avg_latency": 2.7},
-        "pi-mono": {"pass_rate": 72.0, "avg_steps": 2.5, "avg_latency": 2.8},
-        "hermes-agent": {"pass_rate": 78.0, "avg_steps": 2.3, "avg_latency": 2.4},
-        "opencode": {"pass_rate": 82.0, "avg_steps": 1.9, "avg_latency": 2.1},
-    },
-}
-
-
 def load_metrics_from_raw_traces() -> Dict[str, Dict[str, Dict[str, float]]]:
     """Scans RAW_TRACES_DIR for build_*.json and rebuild_*.json files."""
     results: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
@@ -69,18 +53,30 @@ def load_metrics_from_raw_traces() -> Dict[str, Dict[str, Dict[str, float]]]:
     }
 
     if not RAW_TRACES_DIR.exists():
-        return {}
+        raise ValueError("Trace directory does not exist")
 
     for p in RAW_TRACES_DIR.glob("*.json"):
         try:
             with open(p, "r", encoding="utf-8") as f:
                 trace = json.load(f)
-            phase = trace.get("phase", "build")
+            phase = trace.get("phase")
             h_id = trace.get("harness_id", "")
             if phase in results and h_id in results[phase]:
+                if not trace.get("task_id") or type(trace.get("passed")) is not bool:
+                    raise ValueError("Missing task ID or boolean passed result")
+                for field in ("steps", "latency_sec"):
+                    value = trace.get(field)
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                        raise ValueError(f"Invalid {field}")
                 results[phase][h_id].append(trace)
-        except Exception:
-            continue
+        except Exception as exc:
+            raise ValueError(f"Invalid trace: {p}") from exc
+
+    for h in HARNESS_ORDER:
+        b_ids = [t.get("task_id") for t in results["build"][h]]
+        r_ids = [t.get("task_id") for t in results["rebuild"][h]]
+        if set(b_ids) != set(r_ids) or len(b_ids) != len(set(b_ids)) or len(r_ids) != len(set(r_ids)):
+            raise ValueError(f"Unpaired or duplicate tasks for {h}")
 
     # Aggregate
     aggregated: Dict[str, Dict[str, Dict[str, float]]] = {"build": {}, "rebuild": {}}
@@ -98,11 +94,11 @@ def load_metrics_from_raw_traces() -> Dict[str, Dict[str, Dict[str, float]]]:
                     "avg_latency": avg_latency,
                 }
 
-    # If insufficient traces exist in either phase, fall back gracefully to empirical reference data
+    # Require measured data for both phases and all harnesses.
     for phase in ["build", "rebuild"]:
         for h in HARNESS_ORDER:
             if h not in aggregated[phase]:
-                aggregated[phase][h] = EMPIRICAL_BENCHMARK_DATA[phase][h]
+                raise ValueError(f"Missing traces for {phase}/{h}; no synthetic fallback is allowed")
 
     return aggregated
 
@@ -134,9 +130,11 @@ def print_markdown_summary(data: Dict[str, Dict[str, Dict[str, float]]]) -> None
     print("=" * 80 + "\n")
 
 
-def generate_comparison_plot(data: Dict[str, Dict[str, Dict[str, float]]], output_path: Path) -> None:
+def generate_comparison_plot(data: Dict[str, Dict[str, Dict[str, float]]], output_path: Path, demo: bool = False) -> None:
     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), dpi=300)
+    if demo:
+        fig.suptitle("SYNTHETIC DEMO — not measured LoRA improvement", color="darkred")
 
     x = np.arange(len(HARNESS_ORDER))
     width = 0.35
@@ -157,14 +155,14 @@ def generate_comparison_plot(data: Dict[str, Dict[str, Dict[str, float]]], outpu
     ax1.set_title("Harness Accuracy Before & After Closed-Loop LoRA", fontsize=12, fontweight="bold", pad=12)
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels, fontsize=10, rotation=15)
-    ax1.set_ylim(0, 100)
+    ax1.set_ylim(0, 115)
     ax1.legend(loc="upper left", framealpha=0.9)
 
     # Annotate deltas
     for i, (b, r) in enumerate(zip(build_pass, rebuild_pass)):
         delta = r - b
         ax1.annotate(
-            f"+{delta:.1f}%",
+            f"{delta:+.1f} pp",
             xy=(x[i] + width/2, r),
             xytext=(0, 4),
             textcoords="offset points",
@@ -183,7 +181,7 @@ def generate_comparison_plot(data: Dict[str, Dict[str, Dict[str, float]]], outpu
     ax2.set_title("Agent Trajectory Step Efficiency", fontsize=12, fontweight="bold", pad=12)
     ax2.set_xticks(x)
     ax2.set_xticklabels(labels, fontsize=10, rotation=15)
-    ax2.set_ylim(0, 7)
+    ax2.set_ylim(0, max(build_steps + rebuild_steps) * 1.3)
     ax2.legend(loc="upper right", framealpha=0.9)
 
     for i, (b, r) in enumerate(zip(build_steps, rebuild_steps)):
@@ -206,19 +204,56 @@ def generate_comparison_plot(data: Dict[str, Dict[str, Dict[str, float]]], outpu
     print(f"[OK] Saved high-resolution comparison chart to: {output_path}")
 
 
+def generate_loss_plot(history_path: Path, output_path: Path):
+    history = json.loads(history_path.read_text(encoding="utf-8"))
+    stages = sorted({r["stage"] for r in history if "loss" in r})
+    if not stages:
+        raise ValueError("No logged training loss found")
+    fig, axes = plt.subplots(1, len(stages), squeeze=False, figsize=(6 * len(stages), 4))
+    for ax, stage in zip(axes[0], stages):
+        rows = [r for r in history if r.get("stage") == stage and "loss" in r and "learning_rate" in r]
+        ax.plot([r["step"] for r in rows], [r["loss"] for r in rows], marker="o")
+        ax.set(title=f"{stage.upper()} training loss", xlabel="Optimizer step", ylabel="Loss")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
 def main():
+    global RAW_TRACES_DIR
     parser = argparse.ArgumentParser(description="Evaluate & visualize HELIX Rebuild performance")
     parser.add_argument("--save-plot", action="store_true", default=True, help="Save matplotlib comparison chart")
+    parser.add_argument("--traces-dir", type=Path, default=RAW_TRACES_DIR)
+    parser.add_argument("--output", type=Path, default=OUTPUT_PLOT_PATH)
+    parser.add_argument("--loss-history", type=Path)
+    parser.add_argument("--loss-only", action="store_true", help="Plot training loss without benchmark traces")
+    parser.add_argument("--demo", action="store_true", help="Explicitly label plots of synthetic sample traces")
     args = parser.parse_args()
+    if args.loss_only:
+        if not HAS_MATPLOTLIB or args.loss_history is None:
+            raise SystemExit("--loss-only requires --loss-history and matplotlib/numpy")
+        generate_loss_plot(args.loss_history, args.output)
+        return
+    RAW_TRACES_DIR = args.traces_dir
+    if not args.demo:
+        for p in RAW_TRACES_DIR.glob("*.json"):
+            trace = json.loads(p.read_text(encoding="utf-8"))
+            if not trace.get("model") or not isinstance(trace.get("test_result"), dict):
+                raise SystemExit(f"{p.name}: no real evaluation provenance; use --demo for sample traces")
 
     data = load_metrics_from_raw_traces()
     print_markdown_summary(data)
 
     if args.save_plot:
         if HAS_MATPLOTLIB:
-            generate_comparison_plot(data, OUTPUT_PLOT_PATH)
+            if args.demo:
+                print("DEMO ONLY: synthetic traces; not measured LoRA improvement")
+            generate_comparison_plot(data, args.output, demo=args.demo)
+            if args.loss_history:
+                generate_loss_plot(args.loss_history, args.output.with_name("loss_curve.png"))
         else:
-            print("[INFO] matplotlib/numpy not installed in current environment. Install via requirements.txt to render plot.")
+            raise SystemExit("matplotlib/numpy are required to render plots")
 
 
 if __name__ == "__main__":
