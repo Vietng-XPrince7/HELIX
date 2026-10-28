@@ -96,15 +96,15 @@ app = modal.App("helix-vllm-engine")
 
 @app.cls(
     image=vllm_image,
-    gpu=modal.gpu.A10G(),                  # ~24 GB VRAM, fits Qwen-7B in fp16
+    gpu="A10G",                  # ~24 GB VRAM, fits Qwen-7B in fp16
     volumes={
         "/root/.cache/huggingface": hf_cache_vol,
         ADAPTERS_MOUNT_PATH: adapters_vol,
     },
     timeout=60 * 60,                       # 1 hour max per request
-    container_idle_timeout=10 * 60,        # 10 min idle -> scale to zero
-    allow_concurrent_inputs=64,            # vLLM handles batching internally
+    scaledown_window=10 * 60,              # 10 min idle -> scale to zero
 )
+@modal.concurrent(max_inputs=64)           # vLLM handles batching internally
 class VLLMServer:
     """Modal class wrapping a vLLM OpenAI-compatible subprocess."""
 
