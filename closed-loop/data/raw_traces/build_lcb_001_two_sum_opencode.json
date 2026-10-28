@@ -9,10 +9,17 @@
   "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
   "provider": "openai-compatible",
   "steps": 1,
-  "latency_sec": 1.2,
-  "assistant_solution": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    seen: dict[int, int] = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in seen:\n            return sorted([seen[complement], i])\n        seen[num] = i\n    return []\n```",
+  "latency_sec": 3.297,
+  "assistant_solution": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return sorted([num_to_index[complement], i])\n        num_to_index[num] = i\n```",
   "passed": true,
-  "raw_helix_transcript": [],
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return sorted([num_to_index[complement], i])\n        num_to_index[num] = i\n```",
+      "finish_reason": "stop"
+    }
+  ],
   "error": "",
-  "timestamp": "2026-10-28T17:12:02.073382+00:00"
+  "timestamp": "2026-10-28T18:33:02.858921+00:00"
 }

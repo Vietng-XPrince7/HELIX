@@ -65,13 +65,14 @@ vllm_image = (
         "vllm>=0.6.3,<1.0",
         "torch>=2.4.0",
         "transformers>=4.45.0",
-        "huggingface_hub[hf_transfer]",
+        "huggingface_hub",
+        "hf-transfer",
         "fastapi[standard]",
         "httpx",
     )
     .env(
         {
-            "HF_HUB_ENABLE_HF_TRANSFER": "1",   # 5-10x faster HF downloads
+            "HF_XET_HIGH_PERFORMANCE": "1",     # modern high-perf HuggingFace transfer
             "VLLM_ATTENTION_BACKEND": "FLASHINFER",
         }
     )
@@ -96,13 +97,14 @@ app = modal.App("helix-vllm-engine")
 
 @app.cls(
     image=vllm_image,
-    gpu="A10G",                  # ~24 GB VRAM, fits Qwen-7B in fp16
+    gpu="A10G",                            # ~24 GB VRAM, fits Qwen-7B in fp16
     volumes={
         "/root/.cache/huggingface": hf_cache_vol,
         ADAPTERS_MOUNT_PATH: adapters_vol,
     },
     timeout=60 * 60,                       # 1 hour max per request
-    scaledown_window=10 * 60,              # 10 min idle -> scale to zero
+    scaledown_window=180,                  # 3 min idle -> scale to zero to minimize GPU cost
+    max_containers=1,                      # Strictly enforce single GPU container to avoid duplicate cost
 )
 @modal.concurrent(max_inputs=64)           # vLLM handles batching internally
 class VLLMServer:
@@ -120,6 +122,7 @@ class VLLMServer:
         adapter_config = os.path.join(lora_path, "adapter_config.json")
         self.lora_enabled = os.path.isfile(adapter_config)
 
+        # Standard modern vLLM serve flags with eager mode to bypass slow CUDA graph compilation
         cmd = [
             "vllm", "serve", MODEL_NAME,
             "--host", "0.0.0.0",
@@ -127,9 +130,9 @@ class VLLMServer:
             "--tensor-parallel-size", "1",
             "--max-model-len", "4096",
             "--gpu-memory-utilization", "0.90",
+            "--enforce-eager",
             "--trust-remote-code",
             "--uvicorn-log-level", "warning",
-            "--disable-log-requests",
         ]
 
         if self.lora_enabled:
@@ -151,7 +154,13 @@ class VLLMServer:
             )
 
         print(f"[vLLM] Command: {' '.join(cmd)}")
-        self.proc = subprocess.Popen(cmd)
+        self.log_path = "/tmp/vllm.log"
+        self.log_file = open(self.log_path, "w", encoding="utf-8")
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=self.log_file,
+            stderr=subprocess.STDOUT,
+        )
 
         # Block until vLLM is ready (polls /health every 2 s).
         import urllib.request
@@ -167,11 +176,25 @@ class VLLMServer:
                         return
             except (urllib.error.URLError, OSError):
                 pass
+
             # Make sure the subprocess hasn't crashed.
             if self.proc.poll() is not None:
+                self.log_file.flush()
+                err_output = ""
+                try:
+                    with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
+                        err_output = f.read()
+                except Exception as read_err:
+                    err_output = f"Could not read log file: {read_err}"
+
+                print("=" * 60)
+                print(f"[vLLM CRASH LOGS] Process exited prematurely with code {self.proc.returncode}:")
+                print(err_output)
+                print("=" * 60)
+
                 raise RuntimeError(
-                    f"vLLM exited prematurely (code {self.proc.returncode}). "
-                    "Check container logs for details."
+                    f"vLLM exited prematurely (code {self.proc.returncode}).\n"
+                    f"Last log output:\n{err_output[-2000:]}"
                 )
             time.sleep(2)
 
@@ -205,6 +228,22 @@ class VLLMServer:
                 "lora_enabled": self.lora_enabled,
                 "adapter": LORA_ADAPTER_NAME if self.lora_enabled else None,
             }
+
+        @web_app.get("/health")
+        async def health():
+            async with httpx.AsyncClient(base_url=target, timeout=5.0) as client:
+                try:
+                    resp = await client.get("/health")
+                    return fastapi.responses.Response(
+                        content=resp.content,
+                        status_code=resp.status_code,
+                        headers=dict(resp.headers),
+                    )
+                except Exception as e:
+                    return fastapi.responses.JSONResponse(
+                        status_code=503,
+                        content={"status": "error", "message": str(e)},
+                    )
 
         @web_app.api_route(
             "/{path:path}", methods=["GET", "POST", "PUT", "DELETE"]
@@ -249,6 +288,8 @@ class VLLMServer:
             except subprocess.TimeoutExpired:
                 print("[vLLM] Force-killing process.")
                 self.proc.kill()
+        if hasattr(self, "log_file") and not self.log_file.closed:
+            self.log_file.close()
         print("[vLLM] Shutdown complete.")
 
 
@@ -266,7 +307,7 @@ def smoke_test():
     (The deployment must already be live via `modal serve` or `modal deploy`.)
     """
     print("=" * 60)
-    print(f"  HELIX vLLM Engine - Smoke Test")
+    print("  HELIX vLLM Engine - Smoke Test")
     print(f"  Base Model  : {MODEL_NAME}")
     print(f"  Adapter Vol : {ADAPTERS_VOLUME_NAME} -> {ADAPTERS_MOUNT_PATH}")
     print("=" * 60)

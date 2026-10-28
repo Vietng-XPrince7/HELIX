@@ -101,41 +101,45 @@ BENCHMARK_PROBLEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "lcb_002_valid_parentheses",
-        "title": "Valid Parentheses String",
-        "difficulty": "easy",
+        "title": "Valid Parentheses String with Wildcard",
+        "difficulty": "medium",
         "prompt": (
-            "Write a Python function `is_valid(s: str) -> bool` that returns True if the "
-            "input string of brackets `()[]{}` is valid (every open bracket is closed by "
-            "the same type in the correct order)."
+            "Write a Python function `is_valid(s: str) -> bool` that checks if brackets are valid. "
+            "The string can contain `()`, `[]`, `{}`, AND the wildcard character `'*'` which can "
+            "be treated as a single `'('`, `')'`, or an empty string `\"\"`."
         ),
         "test_cases": [
             "assert is_valid('()') == True",
-            "assert is_valid('()[]{}') == True",
-            "assert is_valid('(]') == False",
-            "assert is_valid('([)]') == False",
-            "assert is_valid('{[]}') == True",
+            "assert is_valid('(*)') == True",
+            "assert is_valid('(*))') == True",
+            "assert is_valid(')') == False",
+            "assert is_valid('(*(') == False",
+            "assert is_valid('(((******))') == True",
+            "assert is_valid('') == True",
         ],
     },
     {
         "id": "lcb_003_lru_cache",
-        "title": "LRU Cache Implementation",
+        "title": "LRU Cache Implementation with Eviction Return",
         "difficulty": "medium",
         "prompt": (
-            "Implement an LRU (Least Recently Used) cache class `LRUCache` in Python with "
-            "O(1) average-time `get(key)` and `put(key, value)` operations. "
-            "`get` returns -1 if key does not exist. `put` evicts the least recently used "
-            "item when capacity is exceeded."
+            "Implement an LRU (Least Recently Used) cache class `LRUCache(capacity: int)` in Python "
+            "with O(1) average-time `get(key)` and `put(key, value)` operations. "
+            "`get` returns -1 if key does not exist. `put` inserts or updates the key; if inserting a new key "
+            "causes capacity to be exceeded, evict the least recently used item AND return the evicted key. "
+            "If no eviction occurred, `put` must return None."
         ),
         "test_cases": [
             "cache = LRUCache(2)",
-            "cache.put(1, 1)",
-            "cache.put(2, 2)",
+            "assert cache.put(1, 1) is None",
+            "assert cache.put(2, 2) is None",
             "assert cache.get(1) == 1",
-            "cache.put(3, 3)",
+            "assert cache.put(3, 3) == 2",
             "assert cache.get(2) == -1",
-            "cache.put(4, 4)",
-            "assert cache.get(1) == -1",
-            "assert cache.get(3) == 3",
+            "assert cache.put(1, 10) is None",
+            "assert cache.get(1) == 10",
+            "assert cache.put(4, 4) == 3",
+            "assert cache.get(3) == -1",
             "assert cache.get(4) == 4",
         ],
     },
@@ -180,21 +184,24 @@ BENCHMARK_PROBLEMS: List[Dict[str, Any]] = [
             "assert search([-1, 0, 3, 5, 9, 12], 2) == -1",
             "assert search([5], 5) == 0",
             "assert search([5], 3) == -1",
+            "assert search([], 1) == -1",
         ],
     },
     {
         "id": "lcb_006_max_subarray",
-        "title": "Maximum Subarray Sum (Kadane)",
-        "difficulty": "easy",
+        "title": "Maximum Subarray Sum and Slice",
+        "difficulty": "medium",
         "prompt": (
-            "Write a Python function `max_sub_array(nums: list[int]) -> int` that finds "
-            "the contiguous subarray with the largest sum and returns its sum (Kadane's algorithm)."
+            "Write a Python function `max_sub_array(nums: list[int]) -> tuple[int, list[int]]` that finds "
+            "the contiguous subarray with the largest sum and returns a tuple `(max_sum, subarray)`. "
+            "If `nums` is empty, return `(0, [])`."
         ),
         "test_cases": [
-            "assert max_sub_array([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6",
-            "assert max_sub_array([1]) == 1",
-            "assert max_sub_array([5, 4, -1, 7, 8]) == 23",
-            "assert max_sub_array([-1, -2, -3]) == -1",
+            "assert max_sub_array([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == (6, [4, -1, 2, 1])",
+            "assert max_sub_array([1]) == (1, [1])",
+            "assert max_sub_array([5, 4, -1, 7, 8]) == (23, [5, 4, -1, 7, 8])",
+            "assert max_sub_array([-1, -2, -3]) == (-1, [-1])",
+            "assert max_sub_array([]) == (0, [])",
         ],
     },
     {
@@ -215,34 +222,35 @@ BENCHMARK_PROBLEMS: List[Dict[str, Any]] = [
     },
     {
         "id": "lcb_008_merge_intervals",
-        "title": "Merge Overlapping Intervals",
+        "title": "Merge Overlapping Intervals with Count",
         "difficulty": "medium",
         "prompt": (
-            "Write a Python function `merge(intervals: list[list[int]]) -> list[list[int]]` "
-            "that merges all overlapping intervals and returns the resulting list of "
-            "non-overlapping intervals sorted by start time."
+            "Write a Python function `merge(intervals: list[list[int]]) -> list[dict]` that "
+            "merges all overlapping or touching intervals (e.g. `[1, 4]` and `[4, 5]` merge into `[1, 5]`). "
+            "Return each merged interval as a dictionary `{'start': int, 'end': int, 'count': int}` where `'count'` "
+            "is the count of original intervals that were merged into it. The result list must be sorted by `'start'`."
         ),
         "test_cases": [
-            "assert merge([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]",
-            "assert merge([[1,4],[4,5]]) == [[1,5]]",
-            "assert merge([[1,4],[2,3]]) == [[1,4]]",
-            "assert merge([[1,4]]) == [[1,4]]",
+            "assert merge([[1,3],[2,6],[8,10],[15,18]]) == [{'start': 1, 'end': 6, 'count': 2}, {'start': 8, 'end': 10, 'count': 1}, {'start': 15, 'end': 18, 'count': 1}]",
+            "assert merge([[2,6],[1,3],[15,18],[8,10]]) == [{'start': 1, 'end': 6, 'count': 2}, {'start': 8, 'end': 10, 'count': 1}, {'start': 15, 'end': 18, 'count': 1}]",
+            "assert merge([[1,4],[4,5]]) == [{'start': 1, 'end': 5, 'count': 2}]",
+            "assert merge([]) == []",
         ],
     },
     {
         "id": "lcb_009_word_break",
-        "title": "Word Break (DP)",
+        "title": "Word Break Sentences (DP/Backtracking)",
         "difficulty": "medium",
         "prompt": (
-            "Write a Python function `word_break(s: str, word_dict: list[str]) -> bool` "
-            "that returns True if `s` can be segmented into a space-separated sequence "
-            "of one or more words from `word_dict`."
+            "Write a Python function `word_break(s: str, word_dict: list[str]) -> list[str]` that "
+            "segments `s` into all possible valid space-separated sentences using words from `word_dict`. "
+            "Return the list of sentences sorted in lexicographical order. If no valid sentence can be formed, return `[]`."
         ),
         "test_cases": [
-            "assert word_break('leetcode', ['leet', 'code']) == True",
-            "assert word_break('applepenapple', ['apple', 'pen']) == True",
-            "assert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) == False",
-            "assert word_break('a', ['a']) == True",
+            "assert word_break('catsanddog', ['cat', 'cats', 'and', 'sand', 'dog']) == ['cat sand dog', 'cats and dog']",
+            "assert word_break('pineapplepenapple', ['apple', 'pen', 'applepen', 'pine', 'pineapple']) == ['pine apple pen apple', 'pine applepen apple', 'pineapple pen apple']",
+            "assert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) == []",
+            "assert word_break('', ['a']) == []",
         ],
     },
     {
@@ -259,6 +267,8 @@ BENCHMARK_PROBLEMS: List[Dict[str, Any]] = [
             "assert num_islands(g1) == 1",
             "g2=[['1','1','0','0','0'],['1','1','0','0','0'],['0','0','1','0','0'],['0','0','0','1','1']]",
             "assert num_islands(g2) == 3",
+            "assert num_islands([]) == 0",
+            "assert num_islands([['0','0'],['0','0']]) == 0",
         ],
     },
 ]
@@ -439,40 +449,35 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
     "lcb_002_valid_parentheses": {
         "opencode": textwrap.dedent("""\
             def is_valid(s: str) -> bool:
-                stack: list[str] = []
-                mapping = {')': '(', '}': '{', ']': '['}
-                for ch in s:
-                    if ch in mapping:
-                        if not stack or stack[-1] != mapping[ch]:
-                            return False
-                        stack.pop()
-                    else:
-                        stack.append(ch)
-                return not stack"""),
+                cmin = cmax = 0
+                for c in s:
+                    if c in '([{':
+                        cmin += 1; cmax += 1
+                    elif c in ')]}':
+                        cmin = max(cmin - 1, 0); cmax -= 1
+                    elif c == '*':
+                        cmin = max(cmin - 1, 0); cmax += 1
+                    if cmax < 0: return False
+                return cmin == 0"""),
         "hermes-agent": textwrap.dedent("""\
             def is_valid(s: str) -> bool:
-                stack = []
-                pairs = {')': '(', '}': '{', ']': '['}
+                cmin = cmax = 0
                 for c in s:
-                    if c in pairs:
-                        top = stack.pop() if stack else '#'
-                        if pairs[c] != top:
-                            return False
-                    else:
-                        stack.append(c)
-                return not stack"""),
+                    if c in '([{': cmin += 1; cmax += 1
+                    elif c in ')]}': cmin = max(cmin - 1, 0); cmax -= 1
+                    elif c == '*': cmin = max(cmin - 1, 0); cmax += 1
+                    if cmax < 0: return False
+                return cmin == 0"""),
         "pi-mono": textwrap.dedent("""\
             def is_valid(s):
-                stack = []
+                cmin = cmax = 0
                 for c in s:
-                    if c in '([{': stack.append(c)
-                    elif not stack: return False
-                    elif c == ')' and stack[-1] != '(': return False
-                    elif c == ']' and stack[-1] != '[': return False
-                    elif c == '}' and stack[-1] != '{': return False
-                    else: stack.pop()
-                return not stack"""),
-        "minimal": "def is_valid(s):\n    return '()' in s or '[]' in s",  # wrong logic
+                    if c in '([{': cmin += 1; cmax += 1
+                    elif c in ')]}': cmin = max(cmin - 1, 0); cmax -= 1
+                    elif c == '*': cmin = max(cmin - 1, 0); cmax += 1
+                    if cmax < 0: return False
+                return cmin == 0"""),
+        "minimal": "def is_valid(s):\n    return '()' in s or '[]' in s",  # fails wildcard
     },
     # --- lcb_003 ---
     "lcb_003_lru_cache": {
@@ -481,18 +486,21 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
                 def __init__(self, capacity: int):
                     from collections import OrderedDict
                     self.cap = capacity
-                    self.cache: OrderedDict[int, int] = OrderedDict()
+                    self.cache = OrderedDict()
                 def get(self, key: int) -> int:
-                    if key not in self.cache:
-                        return -1
+                    if key not in self.cache: return -1
                     self.cache.move_to_end(key)
                     return self.cache[key]
-                def put(self, key: int, value: int) -> None:
+                def put(self, key: int, value: int):
                     if key in self.cache:
                         self.cache.move_to_end(key)
+                        self.cache[key] = value
+                        return None
+                    evicted = None
+                    if len(self.cache) >= self.cap:
+                        evicted, _ = self.cache.popitem(last=False)
                     self.cache[key] = value
-                    if len(self.cache) > self.cap:
-                        self.cache.popitem(last=False)"""),
+                    return evicted"""),
         "hermes-agent": textwrap.dedent("""\
             class LRUCache:
                 def __init__(self, capacity):
@@ -504,9 +512,14 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
                     self.cache.move_to_end(key)
                     return self.cache[key]
                 def put(self, key, value):
-                    if key in self.cache: self.cache.move_to_end(key)
+                    if key in self.cache:
+                        self.cache.move_to_end(key); self.cache[key] = value
+                        return None
+                    evicted = None
+                    if len(self.cache) >= self.cap:
+                        evicted, _ = self.cache.popitem(last=False)
                     self.cache[key] = value
-                    if len(self.cache) > self.cap: self.cache.popitem(last=False)"""),
+                    return evicted"""),
         "pi-mono": textwrap.dedent("""\
             class LRUCache:
                 def __init__(self, capacity):
@@ -518,15 +531,20 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
                     self.cache.move_to_end(key)
                     return self.cache[key]
                 def put(self, key, value):
+                    if key in self.cache:
+                        self.cache.move_to_end(key); self.cache[key] = value
+                        return None
+                    ev = None
+                    if len(self.cache) >= self.cap:
+                        ev, _ = self.cache.popitem(last=False)
                     self.cache[key] = value
-                    self.cache.move_to_end(key)
-                    if len(self.cache) > self.cap: self.cache.popitem(last=False)"""),
+                    return ev"""),
         "minimal": textwrap.dedent("""\
             class LRUCache:
                 def __init__(self, capacity):
                     self.d = {}
                 def get(self, key): return self.d.get(key, -1)
-                def put(self, key, value): self.d[key] = value"""),  # no eviction
+                def put(self, key, value): self.d[key] = value; return None"""),  # fails eviction return
     },
     # --- lcb_004 ---
     "lcb_004_reverse_linked_list": {
@@ -609,27 +627,42 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
     # --- lcb_006 ---
     "lcb_006_max_subarray": {
         "opencode": textwrap.dedent("""\
-            def max_sub_array(nums: list[int]) -> int:
-                best = cur = nums[0]
-                for n in nums[1:]:
-                    cur = max(n, cur + n)
-                    best = max(best, cur)
-                return best"""),
+            def max_sub_array(nums: list[int]) -> tuple[int, list[int]]:
+                if not nums: return (0, [])
+                best_sum = cur_sum = nums[0]
+                start = best_start = best_end = 0
+                for i in range(1, len(nums)):
+                    if cur_sum < 0:
+                        cur_sum = nums[i]
+                        start = i
+                    else:
+                        cur_sum += nums[i]
+                    if cur_sum > best_sum:
+                        best_sum = cur_sum
+                        best_start = start
+                        best_end = i
+                return (best_sum, nums[best_start:best_end+1])"""),
         "hermes-agent": textwrap.dedent("""\
             def max_sub_array(nums):
-                max_sum = cur = nums[0]
-                for n in nums[1:]:
-                    cur = max(n, cur+n)
-                    max_sum = max(max_sum, cur)
-                return max_sum"""),
+                if not nums: return (0, [])
+                best = cur = nums[0]
+                s = bs = be = 0
+                for i in range(1, len(nums)):
+                    if cur < 0: cur, s = nums[i], i
+                    else: cur += nums[i]
+                    if cur > best: best, bs, be = cur, s, i
+                return (best, nums[bs:be+1])"""),
         "pi-mono": textwrap.dedent("""\
             def max_sub_array(nums):
+                if not nums: return (0, [])
                 best = cur = nums[0]
-                for x in nums[1:]:
-                    cur = x if cur < 0 else cur + x
-                    best = max(best, cur)
-                return best"""),
-        "minimal": "def max_sub_array(nums):\n    return max(nums)",  # wrong for mixed signs
+                s = bs = be = 0
+                for i in range(1, len(nums)):
+                    if cur < 0: cur, s = nums[i], i
+                    else: cur += nums[i]
+                    if cur > best: best, bs, be = cur, s, i
+                return (best, nums[bs:be+1])"""),
+        "minimal": "def max_sub_array(nums):\n    return max(nums) if nums else 0",  # returns int not tuple
     },
     # --- lcb_007 ---
     "lcb_007_climbing_stairs": {
@@ -663,75 +696,93 @@ _DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
     # --- lcb_008 ---
     "lcb_008_merge_intervals": {
         "opencode": textwrap.dedent("""\
-            def merge(intervals: list[list[int]]) -> list[list[int]]:
-                intervals.sort(key=lambda x: x[0])
-                merged: list[list[int]] = []
-                for start, end in intervals:
-                    if merged and merged[-1][1] >= start:
-                        merged[-1][1] = max(merged[-1][1], end)
+            def merge(intervals: list[list[int]]) -> list[dict]:
+                if not intervals: return []
+                intervals = sorted(intervals, key=lambda x: x[0])
+                res = [{'start': intervals[0][0], 'end': intervals[0][1], 'count': 1}]
+                for s, e in intervals[1:]:
+                    if s <= res[-1]['end']:
+                        res[-1]['end'] = max(res[-1]['end'], e)
+                        res[-1]['count'] += 1
                     else:
-                        merged.append([start, end])
-                return merged"""),
+                        res.append({'start': s, 'end': e, 'count': 1})
+                return res"""),
         "hermes-agent": textwrap.dedent("""\
             def merge(intervals):
-                intervals.sort()
-                res = []
-                for iv in intervals:
-                    if res and res[-1][1] >= iv[0]:
-                        res[-1][1] = max(res[-1][1], iv[1])
+                if not intervals: return []
+                ivs = sorted(intervals, key=lambda x: x[0])
+                out = [{'start': ivs[0][0], 'end': ivs[0][1], 'count': 1}]
+                for s, e in ivs[1:]:
+                    if s <= out[-1]['end']:
+                        out[-1]['end'] = max(out[-1]['end'], e)
+                        out[-1]['count'] += 1
                     else:
-                        res.append(list(iv))
-                return res"""),
+                        out.append({'start': s, 'end': e, 'count': 1})
+                return out"""),
         "pi-mono": textwrap.dedent("""\
             def merge(intervals):
-                out = sorted(intervals)
-                stack = [out[0]]
-                for s, e in out[1:]:
-                    if s <= stack[-1][1]:
-                        stack[-1][1] = max(stack[-1][1], e)
+                if not intervals: return []
+                ivs = sorted(intervals, key=lambda x: x[0])
+                out = [{'start': ivs[0][0], 'end': ivs[0][1], 'count': 1}]
+                for s, e in ivs[1:]:
+                    if s <= out[-1]['end']:
+                        out[-1]['end'] = max(out[-1]['end'], e); out[-1]['count'] += 1
                     else:
-                        stack.append([s, e])
-                return stack"""),
+                        out.append({'start': s, 'end': e, 'count': 1})
+                return out"""),
         "minimal": textwrap.dedent("""\
             def merge(intervals):
-                return sorted(intervals)  # no merging"""),
+                return sorted(intervals)"""),  # fails schema (list of lists, not dicts)
     },
     # --- lcb_009 ---
     "lcb_009_word_break": {
         "opencode": textwrap.dedent("""\
-            def word_break(s: str, word_dict: list[str]) -> bool:
-                words = set(word_dict)
-                n = len(s)
-                dp = [False] * (n + 1)
-                dp[0] = True
-                for i in range(1, n + 1):
-                    for j in range(i):
-                        if dp[j] and s[j:i] in words:
-                            dp[i] = True
-                            break
-                return dp[n]"""),
+            def word_break(s: str, word_dict: list[str]) -> list[str]:
+                if not s: return []
+                ws = set(word_dict)
+                memo = {}
+                def dfs(rem):
+                    if not rem: return [""]
+                    if rem in memo: return memo[rem]
+                    res = []
+                    for w in ws:
+                        if rem.startswith(w):
+                            for t in dfs(rem[len(w):]):
+                                res.append(w + (" " + t if t else ""))
+                    memo[rem] = res
+                    return res
+                return sorted(dfs(s))"""),
         "hermes-agent": textwrap.dedent("""\
             def word_break(s, word_dict):
-                ws = set(word_dict)
-                dp = [False]*(len(s)+1)
-                dp[0] = True
-                for i in range(1, len(s)+1):
-                    for j in range(i):
-                        if dp[j] and s[j:i] in ws:
-                            dp[i] = True; break
-                return dp[-1]"""),
+                if not s: return []
+                ws, memo = set(word_dict), {}
+                def dfs(rem):
+                    if not rem: return [""]
+                    if rem in memo: return memo[rem]
+                    res = []
+                    for w in ws:
+                        if rem.startswith(w):
+                            for t in dfs(rem[len(w):]):
+                                res.append(w + (" " + t if t else ""))
+                    memo[rem] = res
+                    return res
+                return sorted(dfs(s))"""),
         "pi-mono": textwrap.dedent("""\
             def word_break(s, word_dict):
-                memo = {}
-                def helper(start):
-                    if start in memo: return memo[start]
-                    if start == len(s): return True
-                    for w in word_dict:
-                        if s.startswith(w, start) and helper(start+len(w)):
-                            memo[start] = True; return True
-                    memo[start] = False; return False
-                return helper(0)"""),
-        "minimal": "def word_break(s, word_dict):\n    return any(w in s for w in word_dict)",
+                if not s: return []
+                ws, memo = set(word_dict), {}
+                def dfs(rem):
+                    if not rem: return [""]
+                    if rem in memo: return memo[rem]
+                    res = []
+                    for w in ws:
+                        if rem.startswith(w):
+                            for t in dfs(rem[len(w):]):
+                                res.append(w + (" " + t if t else ""))
+                    memo[rem] = res
+                    return res
+                return sorted(dfs(s))"""),
+        "minimal": "def word_break(s, word_dict):\n    return any(w in s for w in word_dict)",  # returns bool
     },
     # --- lcb_010 ---
     "lcb_010_number_of_islands": {
@@ -810,8 +861,48 @@ def _dry_run_solution(harness_id: str, problem_id: str) -> Tuple[str, int, float
 
 
 # =============================================================================
-# 5. Live Mode: OpenAI-Compatible Client Caller
+# 5. Live Mode: Pre-flight Health Check & OpenAI-Compatible Client Caller
 # =============================================================================
+
+def wait_for_server_ready(base_url: str, timeout_sec: int = 180, poll_interval_sec: int = 5) -> bool:
+    """
+    Pre-flight health check: polls GET {server_root}/health until HTTP 200 or timeout.
+    Enforces fail-fast behavior before queuing expensive evaluation runs on Modal vLLM.
+    """
+    import urllib.request
+    import urllib.error
+
+    base_url_clean = base_url.rstrip("/")
+    if base_url_clean.endswith("/v1"):
+        server_root = base_url_clean[:-3]
+    else:
+        server_root = base_url_clean
+    health_url = f"{server_root}/health"
+
+    print(f"\n[Health Check] Polling server health at: {health_url}")
+    start_time = time.monotonic()
+    deadline = start_time + timeout_sec
+
+    while time.monotonic() < deadline:
+        elapsed = int(time.monotonic() - start_time)
+        try:
+            req = urllib.request.Request(
+                health_url,
+                headers={"User-Agent": "HELIX-Preflight/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status == 200:
+                    print(f"[Health Check] Server is healthy and ready! ({elapsed}s elapsed)\n")
+                    return True
+                print(f"[Health Check] Received status {resp.status}... ({elapsed}s elapsed)")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+            print(f"[Health Check] Waiting for Modal vLLM cold-start... ({elapsed}s elapsed) [{e}]")
+
+        time.sleep(poll_interval_sec)
+
+    print(f"\n[ERROR] Health check timed out after {timeout_sec}s. Modal vLLM server is not healthy.")
+    return False
+
 
 def _live_solution(
     harness_id: str,
@@ -829,10 +920,15 @@ def _live_solution(
     except ImportError:
         return "", 0, 0.0, [], "ImportError: pip install openai"
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
+    # Enforce 90-second timeout on network requests
+    client = OpenAI(base_url=base_url, api_key=api_key, timeout=90.0)
     system_prompt = _build_system_prompt(harness_id)
-    harness_cfg = _load_harness_config(harness_id)
-    max_steps = (harness_cfg or {}).get("max_steps", 8)
+    # Minimal has zero scaffolding, no execution loop (pure 1-shot)
+    if harness_id == "minimal":
+        max_steps = 1
+    else:
+        harness_cfg = _load_harness_config(harness_id)
+        max_steps = (harness_cfg or {}).get("max_steps", 8)
 
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": system_prompt},
@@ -842,7 +938,7 @@ def _live_solution(
     step = 0
     t0 = time.monotonic()
 
-    # Agentic loop: run up to max_steps rounds (most tasks resolve in 1-2).
+    # Agentic loop: runs up to max_steps with execution feedback for advanced harnesses
     while step < max_steps:
         step += 1
         try:
@@ -851,6 +947,7 @@ def _live_solution(
                 messages=messages,
                 temperature=0.0,
                 max_tokens=1024,
+                timeout=90.0,
             )
         except Exception as exc:
             return "", step, time.monotonic() - t0, transcript, str(exc)
@@ -864,11 +961,29 @@ def _live_solution(
         })
         messages.append({"role": "assistant", "content": reply})
 
-        # If code block is present, terminate the loop early
-        if extract_python_code(reply):
-            break
+        # Check for extracted Python code
+        code = extract_python_code(reply)
+        if code:
+            if harness_id == "minimal":
+                # Minimal harness has no execution tool/feedback (1-shot only)
+                break
 
-        # Otherwise prompt the model to produce code
+            # Advanced harness: execute in sandbox against test cases
+            passed, test_err = run_test_cases(code, problem["test_cases"])
+            if passed or step >= max_steps:
+                break
+
+            # Multi-turn error feedback for iterative self-correction
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Test execution failed with error:\n```\n{test_err}\n```\n"
+                    "Please analyze this failure, fix the issue, and provide a corrected implementation in ```python ... ```."
+                ),
+            })
+            continue
+
+        # If no code block found, prompt for code
         messages.append({
             "role": "user",
             "content": "Please provide your Python implementation wrapped in ```python ... ```.",
@@ -970,12 +1085,19 @@ def run_evaluation(args: argparse.Namespace) -> None:
     base_url = args.base_url or os.environ.get("HELIX_LIVE_BASE_URL", "")
     api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
 
-    if args.mode == "live" and not base_url:
-        print(
-            "[ERROR] --mode live requires --base-url or HELIX_LIVE_BASE_URL to be set.\n"
-            "        Example: export HELIX_LIVE_BASE_URL=https://<workspace>--helix-vllm-engine-vllmserver-serve.modal.run/v1"
-        )
-        sys.exit(1)
+    if args.mode == "live":
+        if not base_url:
+            print(
+                "[ERROR] --mode live requires --base-url or HELIX_LIVE_BASE_URL to be set.\n"
+                "        Example: export HELIX_LIVE_BASE_URL=https://<workspace>--helix-vllm-engine-vllmserver-serve.modal.run/v1"
+            )
+            sys.exit(1)
+
+        # Pre-flight health check with fail-fast guarantee
+        is_ready = wait_for_server_ready(base_url, timeout_sec=180, poll_interval_sec=5)
+        if not is_ready:
+            print("[FAIL-FAST] Aborting evaluation loop: Modal vLLM server is not reachable or healthy.")
+            sys.exit(1)
 
     problems = BENCHMARK_PROBLEMS[: args.limit]
     total = len(problems) * len(HARNESS_IDS)
