@@ -1,425 +1,1131 @@
 """
-02_run_helix_eval.py - Automated Benchmark Evaluation across HELIX Harnesses
-=============================================================================
-Orchestrates execution of 4 representative HELIX AI agent harnesses
-(Minimal, Pi Mono, Hermes Agent, OpenCode) across a curated subset of coding tasks
-(inspired by LiveCodeBench / SWE-bench Mini).
+02_run_helix_eval.py - HELIX Harness Evaluation Runner
+=======================================================
+Drives 4 harnesses (minimal, pi-mono, hermes-agent, opencode) across a built-in
+benchmark of 10 algorithmic programming problems and persists per-run trace files
+that are 100% compatible with the schema expected by 03_extract_pairs.py.
 
-Records full trajectory traces (prompts, tool calls, thinking steps, results)
-to `closed-loop/data/raw_traces/` for downstream Sibling Trajectory extraction.
+Two execution modes
+-------------------
+  live      Call the Modal vLLM endpoint via an OpenAI-compatible client,
+            emulating each harness's system prompt / loop depth.
+            Requires: HELIX_LIVE_BASE_URL (or --base-url) to be set.
 
-Usage:
-  # Run BUILD phase (Base Model Theta_0):
-  python closed-loop/scripts/02_run_helix_eval.py --phase build --limit 10
+  dry-run   Generate plausible, deterministic mock solutions entirely on-machine
+            (no GPU, no Modal, no network).  Useful for validating the full
+            pipeline and the output JSON schema on any developer laptop.
 
-  # Run REBUILD phase (LoRA-adapted Model Theta_1):
-  python closed-loop/scripts/02_run_helix_eval.py --phase rebuild --model helix-lora-adapter --limit 10
+Output
+------
+  closed-loop/data/raw_traces/{phase}_{task_id}_{harness_id}.json
+
+  Each file conforms to the schema consumed by 03_extract_pairs.py:
+    phase, task_id, task_title, difficulty, prompt, harness_id,
+    harness_category, model, provider, steps, latency_sec,
+    assistant_solution, passed, raw_helix_transcript, error, timestamp
+
+Usage
+-----
+  # Offline validation (no GPU needed):
+  python closed-loop/scripts/02_run_helix_eval.py --phase build --mode dry-run --limit 3
+
+  # Live evaluation against Modal vLLM:
+  python closed-loop/scripts/02_run_helix_eval.py --phase build --mode live
+
+  # REBUILD phase (uses LoRA adapter alias served by 01_modal_vllm.py):
+  python closed-loop/scripts/02_run_helix_eval.py --phase rebuild --mode live
 """
 
+from __future__ import annotations
+
 import argparse
+import ast
 import json
 import os
+import re
 import subprocess
 import sys
+import textwrap
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-# Base directories
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-CLOSED_LOOP_ROOT = PROJECT_ROOT / "closed-loop"
-CONFIGS_DIR = CLOSED_LOOP_ROOT / "configs"
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+SCRIPT_DIR = Path(__file__).resolve().parent
+CLOSED_LOOP_ROOT = SCRIPT_DIR.parent
 RAW_TRACES_DIR = CLOSED_LOOP_ROOT / "data" / "raw_traces"
+CONFIGS_DIR = CLOSED_LOOP_ROOT / "configs"
 
+# ---------------------------------------------------------------------------
+# Constants that must stay in sync with 01_modal_vllm.py
+# ---------------------------------------------------------------------------
+BASE_MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"
+LORA_ADAPTER_NAME = "helix-lora"          # alias registered in vLLM multi-LoRA
+DEFAULT_PROVIDER = "openai-compatible"
 
-# ------------------------------------------------------------------------------
-# 1. Benchmark Task Subset (LiveCodeBench-style representative tasks)
-# ------------------------------------------------------------------------------
-SAMPLE_BENCHMARK_TASKS: List[Dict[str, Any]] = [
+# ---------------------------------------------------------------------------
+# Sandbox execution constants
+# ---------------------------------------------------------------------------
+SANDBOX_TIMEOUT_SEC = 5         # max wall-clock seconds per test_cases run
+CODE_EXTRACTION_PATTERNS = [
+    re.compile(r"```python\s*\n(.*?)```", re.DOTALL | re.IGNORECASE),
+    re.compile(r"```\s*\n(.*?)```", re.DOTALL),
+]
+
+# =============================================================================
+# 1. Built-in Benchmark Problems
+# =============================================================================
+# 10 algorithmic problems (Easy -> Medium), each with:
+#   id, title, difficulty, prompt, test_cases (list of Python assert strings)
+# The test_cases are evaluated in a subprocess sandbox after code extraction.
+
+BENCHMARK_PROBLEMS: List[Dict[str, Any]] = [
     {
-        "task_id": "lcb_001_two_sum",
-        "difficulty": "easy",
+        "id": "lcb_001_two_sum",
         "title": "Two Sum with Indices",
+        "difficulty": "easy",
         "prompt": (
             "Write a Python function `two_sum(nums: list[int], target: int) -> list[int]` "
-            "that returns the 0-based indices of the two numbers such that they add up to target. "
-            "Assume exactly one valid answer exists. Return valid Python code inside ```python ```."
+            "that returns the indices of the two numbers in `nums` that add up to `target`. "
+            "You may assume each input has exactly one solution and you may not use the same "
+            "element twice. Return indices in ascending order."
         ),
-        "test_code": (
-            "assert two_sum([2, 7, 11, 15], 9) == [0, 1]\n"
-            "assert two_sum([3, 2, 4], 6) == [1, 2]\n"
-            "assert two_sum([3, 3], 6) == [0, 1]\n"
-            "print('ALL_PASSED')"
-        ),
+        "test_cases": [
+            "assert two_sum([2, 7, 11, 15], 9) == [0, 1]",
+            "assert two_sum([3, 2, 4], 6) == [1, 2]",
+            "assert two_sum([3, 3], 6) == [0, 1]",
+        ],
     },
     {
-        "task_id": "lcb_002_valid_parentheses",
-        "difficulty": "easy",
+        "id": "lcb_002_valid_parentheses",
         "title": "Valid Parentheses String",
+        "difficulty": "easy",
         "prompt": (
-            "Write a Python function `is_valid(s: str) -> bool` that determines if the input string "
-            "has valid matched brackets '()', '{}', '[]'. Return only clean Python code in ```python ```."
+            "Write a Python function `is_valid(s: str) -> bool` that returns True if the "
+            "input string of brackets `()[]{}` is valid (every open bracket is closed by "
+            "the same type in the correct order)."
         ),
-        "test_code": (
-            "assert is_valid('()[]{}') == True\n"
-            "assert is_valid('(]') == False\n"
-            "assert is_valid('([)]') == False\n"
-            "assert is_valid('{[]}') == True\n"
-            "print('ALL_PASSED')"
-        ),
+        "test_cases": [
+            "assert is_valid('()') == True",
+            "assert is_valid('()[]{}') == True",
+            "assert is_valid('(]') == False",
+            "assert is_valid('([)]') == False",
+            "assert is_valid('{[]}') == True",
+        ],
     },
     {
-        "task_id": "lcb_003_lru_cache",
-        "difficulty": "medium",
+        "id": "lcb_003_lru_cache",
         "title": "LRU Cache Implementation",
+        "difficulty": "medium",
         "prompt": (
-            "Implement an `LRUCache(capacity: int)` class in Python with `get(key: int) -> int` "
-            "and `put(key: int, value: int) -> None` in O(1) average time complexity. "
-            "Return valid Python code inside ```python ```."
+            "Implement an LRU (Least Recently Used) cache class `LRUCache` in Python with "
+            "O(1) average-time `get(key)` and `put(key, value)` operations. "
+            "`get` returns -1 if key does not exist. `put` evicts the least recently used "
+            "item when capacity is exceeded."
         ),
-        "test_code": (
-            "cache = LRUCache(2)\n"
-            "cache.put(1, 1)\n"
-            "cache.put(2, 2)\n"
-            "assert cache.get(1) == 1\n"
-            "cache.put(3, 3)\n"
-            "assert cache.get(2) == -1\n"
-            "print('ALL_PASSED')"
-        ),
+        "test_cases": [
+            "cache = LRUCache(2)",
+            "cache.put(1, 1)",
+            "cache.put(2, 2)",
+            "assert cache.get(1) == 1",
+            "cache.put(3, 3)",
+            "assert cache.get(2) == -1",
+            "cache.put(4, 4)",
+            "assert cache.get(1) == -1",
+            "assert cache.get(3) == 3",
+            "assert cache.get(4) == 4",
+        ],
     },
     {
-        "task_id": "lcb_004_longest_palindromic_sub",
-        "difficulty": "medium",
-        "title": "Longest Palindromic Substring",
+        "id": "lcb_004_reverse_linked_list",
+        "title": "Reverse a Linked List",
+        "difficulty": "easy",
         "prompt": (
-            "Write a Python function `longest_palindrome(s: str) -> str` that returns the longest "
-            "palindromic substring in s. Provide optimal clean Python code inside ```python ```."
+            "Define a `ListNode` class with `val` and `next` attributes. "
+            "Write a Python function `reverse_list(head: ListNode | None) -> ListNode | None` "
+            "that reverses a singly linked list in-place and returns the new head."
         ),
-        "test_code": (
-            "assert longest_palindrome('babad') in ['bab', 'aba']\n"
-            "assert longest_palindrome('cbbd') == 'bb'\n"
-            "assert longest_palindrome('a') == 'a'\n"
-            "print('ALL_PASSED')"
-        ),
+        "test_cases": [
+            "class ListNode:",
+            "    def __init__(self, val=0, next=None): self.val=val; self.next=next",
+            "def to_list(node):",
+            "    r=[]",
+            "    while node: r.append(node.val); node=node.next",
+            "    return r",
+            "def make_list(vals):",
+            "    if not vals: return None",
+            "    h=ListNode(vals[0])",
+            "    c=h",
+            "    for v in vals[1:]: c.next=ListNode(v); c=c.next",
+            "    return h",
+            "assert to_list(reverse_list(make_list([1,2,3,4,5]))) == [5,4,3,2,1]",
+            "assert to_list(reverse_list(make_list([1,2]))) == [2,1]",
+            "assert reverse_list(None) is None",
+        ],
     },
     {
-        "task_id": "lcb_005_merge_intervals",
-        "difficulty": "medium",
+        "id": "lcb_005_binary_search",
+        "title": "Binary Search",
+        "difficulty": "easy",
+        "prompt": (
+            "Write a Python function `search(nums: list[int], target: int) -> int` that "
+            "performs binary search on a sorted list `nums` and returns the index of `target`, "
+            "or -1 if it is not found. Must run in O(log n) time."
+        ),
+        "test_cases": [
+            "assert search([-1, 0, 3, 5, 9, 12], 9) == 4",
+            "assert search([-1, 0, 3, 5, 9, 12], 2) == -1",
+            "assert search([5], 5) == 0",
+            "assert search([5], 3) == -1",
+        ],
+    },
+    {
+        "id": "lcb_006_max_subarray",
+        "title": "Maximum Subarray Sum (Kadane)",
+        "difficulty": "easy",
+        "prompt": (
+            "Write a Python function `max_sub_array(nums: list[int]) -> int` that finds "
+            "the contiguous subarray with the largest sum and returns its sum (Kadane's algorithm)."
+        ),
+        "test_cases": [
+            "assert max_sub_array([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6",
+            "assert max_sub_array([1]) == 1",
+            "assert max_sub_array([5, 4, -1, 7, 8]) == 23",
+            "assert max_sub_array([-1, -2, -3]) == -1",
+        ],
+    },
+    {
+        "id": "lcb_007_climbing_stairs",
+        "title": "Climbing Stairs (DP)",
+        "difficulty": "easy",
+        "prompt": (
+            "Write a Python function `climb_stairs(n: int) -> int` that returns the number "
+            "of distinct ways to climb `n` stairs if you can take 1 or 2 steps at a time."
+        ),
+        "test_cases": [
+            "assert climb_stairs(1) == 1",
+            "assert climb_stairs(2) == 2",
+            "assert climb_stairs(3) == 3",
+            "assert climb_stairs(5) == 8",
+            "assert climb_stairs(10) == 89",
+        ],
+    },
+    {
+        "id": "lcb_008_merge_intervals",
         "title": "Merge Overlapping Intervals",
+        "difficulty": "medium",
         "prompt": (
-            "Write a Python function `merge(intervals: list[list[int]]) -> list[list[int]]` that merges "
-            "all overlapping intervals and returns an array of non-overlapping intervals sorted by start time. "
-            "Provide clean Python code in ```python ```."
+            "Write a Python function `merge(intervals: list[list[int]]) -> list[list[int]]` "
+            "that merges all overlapping intervals and returns the resulting list of "
+            "non-overlapping intervals sorted by start time."
         ),
-        "test_code": (
-            "assert merge([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]\n"
-            "assert merge([[1,4],[4,5]]) == [[1,5]]\n"
-            "assert merge([]) == []\n"
-            "print('ALL_PASSED')"
+        "test_cases": [
+            "assert merge([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]",
+            "assert merge([[1,4],[4,5]]) == [[1,5]]",
+            "assert merge([[1,4],[2,3]]) == [[1,4]]",
+            "assert merge([[1,4]]) == [[1,4]]",
+        ],
+    },
+    {
+        "id": "lcb_009_word_break",
+        "title": "Word Break (DP)",
+        "difficulty": "medium",
+        "prompt": (
+            "Write a Python function `word_break(s: str, word_dict: list[str]) -> bool` "
+            "that returns True if `s` can be segmented into a space-separated sequence "
+            "of one or more words from `word_dict`."
         ),
+        "test_cases": [
+            "assert word_break('leetcode', ['leet', 'code']) == True",
+            "assert word_break('applepenapple', ['apple', 'pen']) == True",
+            "assert word_break('catsandog', ['cats', 'dog', 'sand', 'and', 'cat']) == False",
+            "assert word_break('a', ['a']) == True",
+        ],
+    },
+    {
+        "id": "lcb_010_number_of_islands",
+        "title": "Number of Islands (BFS/DFS)",
+        "difficulty": "medium",
+        "prompt": (
+            "Write a Python function `num_islands(grid: list[list[str]]) -> int` that "
+            "counts the number of islands in a 2D binary grid. An island is a group of "
+            "adjacent '1's (land) surrounded by '0's (water). Connections are 4-directional."
+        ),
+        "test_cases": [
+            "g1=[['1','1','1','1','0'],['1','1','0','1','0'],['1','1','0','0','0'],['0','0','0','0','0']]",
+            "assert num_islands(g1) == 1",
+            "g2=[['1','1','0','0','0'],['1','1','0','0','0'],['0','0','1','0','0'],['0','0','0','1','1']]",
+            "assert num_islands(g2) == 3",
+        ],
     },
 ]
 
+# =============================================================================
+# 2. Harness System Prompt Templates
+# =============================================================================
+# Each harness uses a different system prompt depth — mirroring the scaffolding
+# differences in the actual HELIX recipe configs.
 
-# ------------------------------------------------------------------------------
-# 2. Helper Functions
-# ------------------------------------------------------------------------------
-def load_harnesses_config() -> List[Dict[str, Any]]:
-    config_path = CONFIGS_DIR / "harnesses.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"Missing harnesses config at {config_path}")
-    with open(config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data.get("harnesses", [])
+def _build_system_prompt(harness_id: str) -> str:
+    """Return the system prompt that characterises each harness's scaffolding level."""
+    if harness_id == "minimal":
+        # Bare minimum — reflects allow-echo-only / minimal-transcript recipe
+        return "You are a helpful coding assistant. Provide a complete Python solution."
+
+    elif harness_id == "pi-mono":
+        # Structured but single-agent — mirrors pi-active-leaf-context
+        return textwrap.dedent("""\
+            You are an expert Python software engineer.
+            Think step-by-step before writing code.
+            Provide a complete, correct, and efficient Python implementation.
+            Wrap your final solution in a ```python ... ``` code block.""")
+
+    elif harness_id == "hermes-agent":
+        # Session-oriented, stable context — mirrors hermes-stable-context-prompt-builder
+        return textwrap.dedent("""\
+            <|im_start|>system
+            You are an expert autonomous software engineer with deep knowledge of algorithms,
+            data structures, and Python best practices.
+            - Reason through the problem carefully before writing code.
+            - Write concise, optimised, and well-commented Python code.
+            - Validate your solution mentally against edge cases.
+            - Return ONLY the final implementation wrapped in ```python ... ```.
+            <|im_end|>""")
+
+    elif harness_id == "opencode":
+        # Feature-rich, detailed prompt — mirrors opencode-prompt-context
+        return textwrap.dedent("""\
+            You are OpenCode, an elite autonomous coding agent specialising in competitive
+            programming and production-grade Python.
+
+            Workflow:
+            1. ANALYSE the problem statement and constraints.
+            2. PLAN the algorithm (time/space complexity).
+            3. IMPLEMENT a clean, optimal Python solution.
+            4. VERIFY mentally by tracing through the provided examples.
+
+            Rules:
+            - Return ONLY the final Python implementation.
+            - Use type hints.
+            - Do NOT include test code, print statements, or explanatory prose outside comments.
+            - Wrap code in ```python ... ```.""")
+
+    return "You are a helpful coding assistant."
 
 
-def extract_python_code(text: str) -> str:
-    """Extracts python code blocks from markdown text or raw string."""
-    if "```python" in text:
-        parts = text.split("```python")
-        if len(parts) > 1:
-            return parts[1].split("```")[0].strip()
-    elif "```" in text:
-        parts = text.split("```")
-        if len(parts) > 1:
-            return parts[1].strip()
-    return text.strip()
+# =============================================================================
+# 3. Code Extraction & Sandbox Verification
+# =============================================================================
+
+def extract_python_code(response_text: str) -> Optional[str]:
+    """
+    Extract a Python code block from an LLM response.
+    Tries fenced code blocks first, falls back to raw indented blocks.
+    """
+    for pattern in CODE_EXTRACTION_PATTERNS:
+        match = pattern.search(response_text)
+        if match:
+            return match.group(1).strip()
+
+    # Heuristic fallback: look for lines starting with 'def ' or 'class '
+    lines = response_text.splitlines()
+    code_lines: List[str] = []
+    in_code = False
+    for line in lines:
+        stripped = line.strip()
+        if not in_code and (stripped.startswith("def ") or stripped.startswith("class ")):
+            in_code = True
+        if in_code:
+            code_lines.append(line)
+    return "\n".join(code_lines).strip() if code_lines else None
 
 
-def run_unit_tests(code: str, test_code: str) -> Dict[str, Any]:
-    """Runs generated python code against the task's assertions in a sandboxed subprocess."""
-    full_script = f"{code}\n\n# --- UNIT TESTS ---\n{test_code}\n"
-    start_time = time.time()
+def run_test_cases(
+    code: str, test_cases: List[str], timeout: int = SANDBOX_TIMEOUT_SEC
+) -> Tuple[bool, Optional[str]]:
+    """
+    Execute `code` + `test_cases` in a child Python process with a hard timeout.
+
+    Returns:
+        (passed: bool, error_message: str | None)
+    """
+    # Build a self-contained script: inject code then assertions
+    test_lines = "\n".join(test_cases)
+    script = f"{code}\n\n# --- auto-generated test harness ---\n{test_lines}\n"
+
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", full_script],
+        result = subprocess.run(
+            [sys.executable, "-c", script],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=timeout,
         )
-        duration = round(time.time() - start_time, 3)
-        passed = (proc.returncode == 0) and ("ALL_PASSED" in proc.stdout)
-        return {
-            "passed": passed,
-            "duration_sec": duration,
-            "stdout": proc.stdout.strip(),
-            "stderr": proc.stderr.strip(),
-            "returncode": proc.returncode,
-        }
+        if result.returncode == 0:
+            return True, None
+        err = (result.stderr or result.stdout or "").strip()
+        return False, err[:500]  # cap error length for JSON cleanliness
     except subprocess.TimeoutExpired:
-        return {
-            "passed": False,
-            "duration_sec": 10.0,
-            "stdout": "",
-            "stderr": "Execution timed out (10s)",
-            "returncode": -1,
-        }
-    except Exception as e:
-        return {
-            "passed": False,
-            "duration_sec": 0.0,
-            "stdout": "",
-            "stderr": str(e),
-            "returncode": -1,
-        }
+        return False, f"TimeoutError: execution exceeded {timeout}s"
+    except Exception as exc:
+        return False, f"SubprocessError: {exc}"
 
 
-# ------------------------------------------------------------------------------
-# 3. HELIX Subprocess Execution
-# ------------------------------------------------------------------------------
-def invoke_helix_cli(
-    harness_id: str,
-    prompt: str,
-    provider: str,
-    model: str,
-    base_url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    max_steps: int = 10,
-) -> Dict[str, Any]:
+def is_clean_artifact(code: str) -> bool:
     """
-    Executes HELIX harness via `npm run helix -- run <product>` command.
-    Captures JSON trajectory response.
+    Heuristic: returns True when the extracted code has no obvious artefacts
+    (stray markdown, debug print-alls, TODO placeholders, empty bodies).
     """
-    # Map 'minimal' to 'pi-mono' or execute minimal recipe inspection if needed,
-    # as CLI run accepts opencode, pi-mono, nanobot, hermes-agent.
-    cli_product = "pi-mono" if harness_id == "minimal" else harness_id
-    if cli_product not in ["opencode", "pi-mono", "hermes-agent", "nanobot"]:
-        cli_product = "pi-mono"
-
-    cmd = [
-        "npm", "run", "helix", "--", "run", cli_product,
-        "--provider", provider,
-        "--model", model,
-        "--prompt", prompt,
-        "--max-steps", str(max_steps),
-        "--json",
+    if not code or len(code.strip()) < 20:
+        return False
+    dirty_patterns = [
+        r"^```",          # leftover fences
+        r"TODO|FIXME|pass  # placeholder",
+        r"print\(.*debug",
     ]
-
-    if base_url:
-        cmd.extend(["--base-url", base_url])
-    if api_key:
-        cmd.extend(["--api-key", api_key])
-
-    env = os.environ.copy()
-    if base_url:
-        env["HELIX_LIVE_BASE_URL"] = base_url
-    if api_key:
-        env["OPENAI_API_KEY"] = api_key
-    if model:
-        env["HELIX_LIVE_MODEL"] = model
-    env["HELIX_LIVE_PROVIDER"] = provider
-
-    start_time = time.time()
+    for pat in dirty_patterns:
+        if re.search(pat, code, re.IGNORECASE | re.MULTILINE):
+            return False
     try:
-        # Use shell=True on Windows for npm execution
-        use_shell = os.name == "nt"
-        proc = subprocess.run(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            env=env,
-            shell=use_shell,
-            timeout=180,
-        )
-        latency = round(time.time() - start_time, 3)
-
-        raw_stdout = proc.stdout.strip()
-        # Parse JSON output from HELIX CLI
-        parsed_output: Dict[str, Any] = {}
-        if raw_stdout:
-            try:
-                # In case npm prints header logs before JSON
-                json_start = raw_stdout.find("{")
-                json_end = raw_stdout.rfind("}")
-                if json_start != -1 and json_end != -1:
-                    json_str = raw_stdout[json_start : json_end + 1]
-                    parsed_output = json.loads(json_str)
-            except Exception:
-                parsed_output = {"raw_stdout": raw_stdout}
-
-        # Extract generated assistant text
-        assistant_text = ""
-        assistant_parts = parsed_output.get("assistantParts", [])
-        if assistant_parts and isinstance(assistant_parts, list):
-            for part in assistant_parts:
-                if isinstance(part, dict) and "text" in part:
-                    assistant_text += part["text"] + "\n"
-        elif "transcript" in parsed_output:
-            for msg in parsed_output.get("transcript", []):
-                if isinstance(msg, dict) and msg.get("role") == "assistant":
-                    assistant_text += msg.get("text", "") + "\n"
-
-        return {
-            "success": proc.returncode == 0,
-            "returncode": proc.returncode,
-            "latency_sec": latency,
-            "steps": parsed_output.get("steps", 1),
-            "transcript": parsed_output.get("transcript", []),
-            "assistant_text": assistant_text.strip(),
-            "raw_output": parsed_output,
-            "stderr": proc.stderr.strip(),
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "returncode": -1,
-            "latency_sec": 180.0,
-            "steps": max_steps,
-            "transcript": [],
-            "assistant_text": "",
-            "raw_output": {},
-            "stderr": "HELIX subprocess timed out after 180s",
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "returncode": -1,
-            "latency_sec": 0.0,
-            "steps": 0,
-            "transcript": [],
-            "assistant_text": "",
-            "raw_output": {},
-            "stderr": str(e),
-        }
+        ast.parse(code)   # syntax check
+        return True
+    except SyntaxError:
+        return False
 
 
-# ------------------------------------------------------------------------------
-# 4. Main Evaluation Flow
-# ------------------------------------------------------------------------------
-def run_evaluation(
-    phase: str,
-    limit: int = 5,
-    selected_harness_id: Optional[str] = None,
-    override_model: Optional[str] = None,
-    override_base_url: Optional[str] = None,
-) -> None:
-    RAW_TRACES_DIR.mkdir(parents=True, exist_ok=True)
-    harnesses = load_harnesses_config()
+# =============================================================================
+# 4. Dry-Run Mock Solution Generator
+# =============================================================================
+# Reference solutions for each benchmark problem used in --mode dry-run.
+# These are correct implementations so the pipeline produces realistic
+# SFT / DPO pairs when run offline.
 
-    if selected_harness_id:
-        harnesses = [h for h in harnesses if h["id"] == selected_harness_id]
+_DRY_RUN_SOLUTIONS: Dict[str, Dict[str, str]] = {
+    # --- lcb_001 ---
+    "lcb_001_two_sum": {
+        "opencode": textwrap.dedent("""\
+            def two_sum(nums: list[int], target: int) -> list[int]:
+                seen: dict[int, int] = {}
+                for i, num in enumerate(nums):
+                    complement = target - num
+                    if complement in seen:
+                        return sorted([seen[complement], i])
+                    seen[num] = i
+                return []"""),
+        "hermes-agent": textwrap.dedent("""\
+            def two_sum(nums: list[int], target: int) -> list[int]:
+                lookup = {}
+                for i, n in enumerate(nums):
+                    if target - n in lookup:
+                        return [lookup[target - n], i]
+                    lookup[n] = i
+                return []"""),
+        "pi-mono": textwrap.dedent("""\
+            def two_sum(nums, target):
+                seen = {}
+                for i, v in enumerate(nums):
+                    if target - v in seen:
+                        return [seen[target - v], i]
+                    seen[v] = i"""),
+        "minimal": textwrap.dedent("""\
+            def two_sum(nums, target):
+                for i in range(len(nums))
+                    for j in range(i+1, len(nums)):
+                        if nums[i]+nums[j]==target: return [i,j]"""),  # syntax error on purpose
+    },
+    # --- lcb_002 ---
+    "lcb_002_valid_parentheses": {
+        "opencode": textwrap.dedent("""\
+            def is_valid(s: str) -> bool:
+                stack: list[str] = []
+                mapping = {')': '(', '}': '{', ']': '['}
+                for ch in s:
+                    if ch in mapping:
+                        if not stack or stack[-1] != mapping[ch]:
+                            return False
+                        stack.pop()
+                    else:
+                        stack.append(ch)
+                return not stack"""),
+        "hermes-agent": textwrap.dedent("""\
+            def is_valid(s: str) -> bool:
+                stack = []
+                pairs = {')': '(', '}': '{', ']': '['}
+                for c in s:
+                    if c in pairs:
+                        top = stack.pop() if stack else '#'
+                        if pairs[c] != top:
+                            return False
+                    else:
+                        stack.append(c)
+                return not stack"""),
+        "pi-mono": textwrap.dedent("""\
+            def is_valid(s):
+                stack = []
+                for c in s:
+                    if c in '([{': stack.append(c)
+                    elif not stack: return False
+                    elif c == ')' and stack[-1] != '(': return False
+                    elif c == ']' and stack[-1] != '[': return False
+                    elif c == '}' and stack[-1] != '{': return False
+                    else: stack.pop()
+                return not stack"""),
+        "minimal": "def is_valid(s):\n    return '()' in s or '[]' in s",  # wrong logic
+    },
+    # --- lcb_003 ---
+    "lcb_003_lru_cache": {
+        "opencode": textwrap.dedent("""\
+            class LRUCache:
+                def __init__(self, capacity: int):
+                    from collections import OrderedDict
+                    self.cap = capacity
+                    self.cache: OrderedDict[int, int] = OrderedDict()
+                def get(self, key: int) -> int:
+                    if key not in self.cache:
+                        return -1
+                    self.cache.move_to_end(key)
+                    return self.cache[key]
+                def put(self, key: int, value: int) -> None:
+                    if key in self.cache:
+                        self.cache.move_to_end(key)
+                    self.cache[key] = value
+                    if len(self.cache) > self.cap:
+                        self.cache.popitem(last=False)"""),
+        "hermes-agent": textwrap.dedent("""\
+            class LRUCache:
+                def __init__(self, capacity):
+                    from collections import OrderedDict
+                    self.cap = capacity
+                    self.cache = OrderedDict()
+                def get(self, key):
+                    if key not in self.cache: return -1
+                    self.cache.move_to_end(key)
+                    return self.cache[key]
+                def put(self, key, value):
+                    if key in self.cache: self.cache.move_to_end(key)
+                    self.cache[key] = value
+                    if len(self.cache) > self.cap: self.cache.popitem(last=False)"""),
+        "pi-mono": textwrap.dedent("""\
+            class LRUCache:
+                def __init__(self, capacity):
+                    from collections import OrderedDict
+                    self.cap = capacity
+                    self.cache = OrderedDict()
+                def get(self, key):
+                    if key not in self.cache: return -1
+                    self.cache.move_to_end(key)
+                    return self.cache[key]
+                def put(self, key, value):
+                    self.cache[key] = value
+                    self.cache.move_to_end(key)
+                    if len(self.cache) > self.cap: self.cache.popitem(last=False)"""),
+        "minimal": textwrap.dedent("""\
+            class LRUCache:
+                def __init__(self, capacity):
+                    self.d = {}
+                def get(self, key): return self.d.get(key, -1)
+                def put(self, key, value): self.d[key] = value"""),  # no eviction
+    },
+    # --- lcb_004 ---
+    "lcb_004_reverse_linked_list": {
+        "opencode": textwrap.dedent("""\
+            class ListNode:
+                def __init__(self, val=0, next=None):
+                    self.val = val
+                    self.next = next
+            def reverse_list(head):
+                prev = None
+                curr = head
+                while curr:
+                    nxt = curr.next
+                    curr.next = prev
+                    prev = curr
+                    curr = nxt
+                return prev"""),
+        "hermes-agent": textwrap.dedent("""\
+            class ListNode:
+                def __init__(self, val=0, next=None):
+                    self.val = val; self.next = next
+            def reverse_list(head):
+                prev, cur = None, head
+                while cur:
+                    cur.next, prev, cur = prev, cur, cur.next
+                return prev"""),
+        "pi-mono": textwrap.dedent("""\
+            class ListNode:
+                def __init__(self, val=0, next=None):
+                    self.val = val; self.next = next
+            def reverse_list(head):
+                p, c = None, head
+                while c:
+                    n = c.next; c.next = p; p = c; c = n
+                return p"""),
+        "minimal": textwrap.dedent("""\
+            class ListNode:
+                def __init__(self, val=0, next=None):
+                    self.val = val; self.next = next
+            def reverse_list(head):
+                return head  # not implemented"""),
+    },
+    # --- lcb_005 ---
+    "lcb_005_binary_search": {
+        "opencode": textwrap.dedent("""\
+            def search(nums: list[int], target: int) -> int:
+                lo, hi = 0, len(nums) - 1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    if nums[mid] == target:
+                        return mid
+                    elif nums[mid] < target:
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+                return -1"""),
+        "hermes-agent": textwrap.dedent("""\
+            def search(nums, target):
+                l, r = 0, len(nums)-1
+                while l <= r:
+                    m = (l+r)//2
+                    if nums[m] == target: return m
+                    elif nums[m] < target: l = m+1
+                    else: r = m-1
+                return -1"""),
+        "pi-mono": textwrap.dedent("""\
+            def search(nums, target):
+                lo, hi = 0, len(nums)-1
+                while lo <= hi:
+                    mid = lo + (hi-lo)//2
+                    if nums[mid] == target: return mid
+                    if nums[mid] < target: lo = mid+1
+                    else: hi = mid-1
+                return -1"""),
+        "minimal": textwrap.dedent("""\
+            def search(nums, target):
+                try: return nums.index(target)
+                except: return -1"""),  # O(n) — technically correct but wrong complexity
+    },
+    # --- lcb_006 ---
+    "lcb_006_max_subarray": {
+        "opencode": textwrap.dedent("""\
+            def max_sub_array(nums: list[int]) -> int:
+                best = cur = nums[0]
+                for n in nums[1:]:
+                    cur = max(n, cur + n)
+                    best = max(best, cur)
+                return best"""),
+        "hermes-agent": textwrap.dedent("""\
+            def max_sub_array(nums):
+                max_sum = cur = nums[0]
+                for n in nums[1:]:
+                    cur = max(n, cur+n)
+                    max_sum = max(max_sum, cur)
+                return max_sum"""),
+        "pi-mono": textwrap.dedent("""\
+            def max_sub_array(nums):
+                best = cur = nums[0]
+                for x in nums[1:]:
+                    cur = x if cur < 0 else cur + x
+                    best = max(best, cur)
+                return best"""),
+        "minimal": "def max_sub_array(nums):\n    return max(nums)",  # wrong for mixed signs
+    },
+    # --- lcb_007 ---
+    "lcb_007_climbing_stairs": {
+        "opencode": textwrap.dedent("""\
+            def climb_stairs(n: int) -> int:
+                if n <= 2:
+                    return n
+                a, b = 1, 2
+                for _ in range(3, n + 1):
+                    a, b = b, a + b
+                return b"""),
+        "hermes-agent": textwrap.dedent("""\
+            def climb_stairs(n):
+                a, b = 1, 1
+                for _ in range(n-1):
+                    a, b = b, a+b
+                return b"""),
+        "pi-mono": textwrap.dedent("""\
+            def climb_stairs(n):
+                dp = [0]*(n+1)
+                dp[0] = dp[1] = 1
+                for i in range(2, n+1): dp[i] = dp[i-1]+dp[i-2]
+                return dp[n]"""),
+        "minimal": textwrap.dedent("""\
+            def climb_stairs(n):
+                from functools import lru_cache
+                @lru_cache
+                def f(k): return 1 if k<=1 else f(k-1)+f(k-2)
+                return f(n)"""),
+    },
+    # --- lcb_008 ---
+    "lcb_008_merge_intervals": {
+        "opencode": textwrap.dedent("""\
+            def merge(intervals: list[list[int]]) -> list[list[int]]:
+                intervals.sort(key=lambda x: x[0])
+                merged: list[list[int]] = []
+                for start, end in intervals:
+                    if merged and merged[-1][1] >= start:
+                        merged[-1][1] = max(merged[-1][1], end)
+                    else:
+                        merged.append([start, end])
+                return merged"""),
+        "hermes-agent": textwrap.dedent("""\
+            def merge(intervals):
+                intervals.sort()
+                res = []
+                for iv in intervals:
+                    if res and res[-1][1] >= iv[0]:
+                        res[-1][1] = max(res[-1][1], iv[1])
+                    else:
+                        res.append(list(iv))
+                return res"""),
+        "pi-mono": textwrap.dedent("""\
+            def merge(intervals):
+                out = sorted(intervals)
+                stack = [out[0]]
+                for s, e in out[1:]:
+                    if s <= stack[-1][1]:
+                        stack[-1][1] = max(stack[-1][1], e)
+                    else:
+                        stack.append([s, e])
+                return stack"""),
+        "minimal": textwrap.dedent("""\
+            def merge(intervals):
+                return sorted(intervals)  # no merging"""),
+    },
+    # --- lcb_009 ---
+    "lcb_009_word_break": {
+        "opencode": textwrap.dedent("""\
+            def word_break(s: str, word_dict: list[str]) -> bool:
+                words = set(word_dict)
+                n = len(s)
+                dp = [False] * (n + 1)
+                dp[0] = True
+                for i in range(1, n + 1):
+                    for j in range(i):
+                        if dp[j] and s[j:i] in words:
+                            dp[i] = True
+                            break
+                return dp[n]"""),
+        "hermes-agent": textwrap.dedent("""\
+            def word_break(s, word_dict):
+                ws = set(word_dict)
+                dp = [False]*(len(s)+1)
+                dp[0] = True
+                for i in range(1, len(s)+1):
+                    for j in range(i):
+                        if dp[j] and s[j:i] in ws:
+                            dp[i] = True; break
+                return dp[-1]"""),
+        "pi-mono": textwrap.dedent("""\
+            def word_break(s, word_dict):
+                memo = {}
+                def helper(start):
+                    if start in memo: return memo[start]
+                    if start == len(s): return True
+                    for w in word_dict:
+                        if s.startswith(w, start) and helper(start+len(w)):
+                            memo[start] = True; return True
+                    memo[start] = False; return False
+                return helper(0)"""),
+        "minimal": "def word_break(s, word_dict):\n    return any(w in s for w in word_dict)",
+    },
+    # --- lcb_010 ---
+    "lcb_010_number_of_islands": {
+        "opencode": textwrap.dedent("""\
+            def num_islands(grid: list[list[str]]) -> int:
+                if not grid:
+                    return 0
+                rows, cols = len(grid), len(grid[0])
+                count = 0
+                def dfs(r: int, c: int) -> None:
+                    if r < 0 or r >= rows or c < 0 or c >= cols or grid[r][c] != '1':
+                        return
+                    grid[r][c] = '0'
+                    dfs(r+1, c); dfs(r-1, c); dfs(r, c+1); dfs(r, c-1)
+                for r in range(rows):
+                    for c in range(cols):
+                        if grid[r][c] == '1':
+                            dfs(r, c); count += 1
+                return count"""),
+        "hermes-agent": textwrap.dedent("""\
+            def num_islands(grid):
+                if not grid: return 0
+                R, C = len(grid), len(grid[0])
+                def sink(r, c):
+                    if not (0<=r<R and 0<=c<C) or grid[r][c]!='1': return
+                    grid[r][c]='0'
+                    for dr,dc in [(1,0),(-1,0),(0,1),(0,-1)]: sink(r+dr,c+dc)
+                cnt = 0
+                for r in range(R):
+                    for c in range(C):
+                        if grid[r][c]=='1': sink(r,c); cnt+=1
+                return cnt"""),
+        "pi-mono": textwrap.dedent("""\
+            def num_islands(grid):
+                from collections import deque
+                if not grid: return 0
+                R, C, count = len(grid), len(grid[0]), 0
+                for r in range(R):
+                    for c in range(C):
+                        if grid[r][c]=='1':
+                            count+=1; q=deque([(r,c)]); grid[r][c]='0'
+                            while q:
+                                row,col=q.popleft()
+                                for dr,dc in [(1,0),(-1,0),(0,1),(0,-1)]:
+                                    nr,nc=row+dr,col+dc
+                                    if 0<=nr<R and 0<=nc<C and grid[nr][nc]=='1':
+                                        grid[nr][nc]='0'; q.append((nr,nc))
+                return count"""),
+        "minimal": textwrap.dedent("""\
+            def num_islands(grid):
+                return sum(grid[r][c]=='1' for r in range(len(grid)) for c in range(len(grid[0])))"""),
+    },
+}
 
-    provider = os.getenv("HELIX_LIVE_PROVIDER", "openai-compatible")
-    model = override_model or os.getenv("HELIX_LIVE_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct")
-    base_url = override_base_url or os.getenv("HELIX_LIVE_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
 
-    tasks = SAMPLE_BENCHMARK_TASKS[:limit]
-    print(f"\n{'='*70}")
-    print(f"HELIX CLOSED-LOOP EVALUATION - PHASE: [{phase.upper()}]")
-    print(f"Model: {model} | Provider: {provider} | Base URL: {base_url}")
-    print(f"Harnesses: {[h['id'] for h in harnesses]} | Tasks count: {len(tasks)}")
-    print(f"{'='*70}\n")
+def _dry_run_solution(harness_id: str, problem_id: str) -> Tuple[str, int, float, str]:
+    """
+    Return (raw_response, steps, latency_sec, error) for dry-run mode.
+    Solutions are pre-defined to produce realistic SFT/DPO signal.
+    Steps and latency are calibrated to harness complexity.
+    """
+    step_map = {"opencode": 1, "hermes-agent": 2, "pi-mono": 3, "minimal": 5}
+    latency_map = {"opencode": 1.2, "hermes-agent": 2.1, "pi-mono": 3.4, "minimal": 5.8}
 
-    summary_records = []
+    code = _DRY_RUN_SOLUTIONS.get(problem_id, {}).get(
+        harness_id,
+        f"def placeholder():\n    pass  # TODO: {problem_id}",
+    )
+    raw_response = f"```python\n{code}\n```"
+    return (
+        raw_response,
+        step_map.get(harness_id, 3),
+        latency_map.get(harness_id, 3.0),
+        "",
+    )
 
-    for task in tasks:
-        task_id = task["task_id"]
-        print(f"\n>> Evaluating Task: {task_id} ({task['title']})")
 
-        for harness in harnesses:
-            h_id = harness["id"]
-            print(f"   |-- Running Harness: [{h_id}] ...", end="", flush=True)
+# =============================================================================
+# 5. Live Mode: OpenAI-Compatible Client Caller
+# =============================================================================
 
-            # Invoke HELIX agent turn
-            helix_res = invoke_helix_cli(
-                harness_id=h_id,
-                prompt=task["prompt"],
-                provider=provider,
+def _live_solution(
+    harness_id: str,
+    problem: Dict[str, Any],
+    base_url: str,
+    model: str,
+    api_key: str,
+) -> Tuple[str, int, float, List[Dict[str, Any]], str]:
+    """
+    Call the OpenAI-compatible vLLM endpoint with the harness-appropriate
+    system prompt and return (raw_response, steps, latency_sec, transcript, error).
+    """
+    try:
+        from openai import OpenAI  # type: ignore[import-untyped]
+    except ImportError:
+        return "", 0, 0.0, [], "ImportError: pip install openai"
+
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    system_prompt = _build_system_prompt(harness_id)
+    harness_cfg = _load_harness_config(harness_id)
+    max_steps = (harness_cfg or {}).get("max_steps", 8)
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": problem["prompt"]},
+    ]
+    transcript: List[Dict[str, Any]] = []
+    step = 0
+    t0 = time.monotonic()
+
+    # Agentic loop: run up to max_steps rounds (most tasks resolve in 1-2).
+    while step < max_steps:
+        step += 1
+        try:
+            response = client.chat.completions.create(
                 model=model,
-                base_url=base_url,
-                api_key=api_key,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=1024,
+            )
+        except Exception as exc:
+            return "", step, time.monotonic() - t0, transcript, str(exc)
+
+        reply = response.choices[0].message.content or ""
+        transcript.append({
+            "step": step,
+            "role": "assistant",
+            "content": reply,
+            "finish_reason": response.choices[0].finish_reason,
+        })
+        messages.append({"role": "assistant", "content": reply})
+
+        # If code block is present, terminate the loop early
+        if extract_python_code(reply):
+            break
+
+        # Otherwise prompt the model to produce code
+        messages.append({
+            "role": "user",
+            "content": "Please provide your Python implementation wrapped in ```python ... ```.",
+        })
+
+    raw_response = transcript[-1]["content"] if transcript else ""
+    return raw_response, step, time.monotonic() - t0, transcript, ""
+
+
+def _load_harness_config(harness_id: str) -> Optional[Dict[str, Any]]:
+    """Load harness metadata from configs/harnesses.json."""
+    cfg_path = CONFIGS_DIR / "harnesses.json"
+    if not cfg_path.exists():
+        return None
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            data = json.load(f)
+        for h in data.get("harnesses", []):
+            if h.get("id") == harness_id:
+                return h
+    except Exception:
+        pass
+    return None
+
+
+# =============================================================================
+# 6. Trace Writer
+# =============================================================================
+
+def save_trace(
+    phase: str,
+    problem: Dict[str, Any],
+    harness_id: str,
+    harness_category: str,
+    model: str,
+    raw_response: str,
+    steps: int,
+    latency_sec: float,
+    passed: bool,
+    raw_helix_transcript: List[Dict[str, Any]],
+    error: str,
+    output_dir: Path,
+) -> Path:
+    """
+    Persist one trace file.  Schema is 100% compatible with 03_extract_pairs.py.
+    """
+    assistant_solution = ""
+    code = extract_python_code(raw_response)
+    if code:
+        assistant_solution = f"```python\n{code}\n```"
+    elif raw_response.strip():
+        assistant_solution = raw_response.strip()
+
+    trace: Dict[str, Any] = {
+        "phase": phase,
+        "task_id": problem["id"],
+        "task_title": problem["title"],
+        "difficulty": problem["difficulty"],
+        "prompt": problem["prompt"],
+        "harness_id": harness_id,
+        "harness_category": harness_category,
+        "model": model,
+        "provider": DEFAULT_PROVIDER,
+        "steps": steps,
+        "latency_sec": round(latency_sec, 3),
+        "assistant_solution": assistant_solution,
+        "passed": passed,
+        "raw_helix_transcript": raw_helix_transcript,
+        "error": error,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{phase}_{problem['id']}_{harness_id}.json"
+    out_path = output_dir / fname
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(trace, f, indent=2, ensure_ascii=False)
+    return out_path
+
+
+# =============================================================================
+# 7. Main Evaluation Loop
+# =============================================================================
+
+HARNESS_IDS = ["minimal", "pi-mono", "hermes-agent", "opencode"]
+
+
+def run_evaluation(args: argparse.Namespace) -> None:
+    """Drive the full evaluation loop across all problems and harnesses."""
+    # Resolve model name
+    if args.model:
+        model = args.model
+    elif args.phase == "rebuild":
+        model = LORA_ADAPTER_NAME
+    else:
+        model = BASE_MODEL_NAME
+
+    # Resolve base URL (live mode only)
+    base_url = args.base_url or os.environ.get("HELIX_LIVE_BASE_URL", "")
+    api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
+
+    if args.mode == "live" and not base_url:
+        print(
+            "[ERROR] --mode live requires --base-url or HELIX_LIVE_BASE_URL to be set.\n"
+            "        Example: export HELIX_LIVE_BASE_URL=https://<workspace>--helix-vllm-engine-vllmserver-serve.modal.run/v1"
+        )
+        sys.exit(1)
+
+    problems = BENCHMARK_PROBLEMS[: args.limit]
+    total = len(problems) * len(HARNESS_IDS)
+
+    print("=" * 65)
+    print("  HELIX Closed-Loop Evaluation Runner")
+    print(f"  Phase    : {args.phase.upper()}")
+    print(f"  Mode     : {args.mode}")
+    print(f"  Model    : {model}")
+    print(f"  Problems : {len(problems)}")
+    print(f"  Harnesses: {len(HARNESS_IDS)}")
+    print(f"  Total    : {total} runs")
+    print(f"  Output   : {RAW_TRACES_DIR}")
+    print("=" * 65)
+
+    success_count = 0
+    run_index = 0
+
+    for problem in problems:
+        print(f"\n[Problem {problem['id']}] {problem['title']} ({problem['difficulty']})")
+
+        for harness_id in HARNESS_IDS:
+            run_index += 1
+            harness_cfg = _load_harness_config(harness_id) or {}
+            harness_category = harness_cfg.get("category", harness_id)
+
+            label = f"  [{run_index}/{total}] harness={harness_id}"
+            print(f"{label} ...", end="", flush=True)
+
+            # ---- Generate solution ----
+            raw_response = ""
+            steps = 0
+            latency_sec = 0.0
+            transcript: List[Dict[str, Any]] = []
+            error = ""
+
+            if args.mode == "dry-run":
+                raw_response, steps, latency_sec, error = _dry_run_solution(
+                    harness_id, problem["id"]
+                )
+            else:
+                raw_response, steps, latency_sec, transcript, error = _live_solution(
+                    harness_id, problem, base_url, model, api_key
+                )
+
+            # ---- Sandbox verification ----
+            code = extract_python_code(raw_response)
+            if code and not error:
+                passed, exec_error = run_test_cases(code, problem["test_cases"])
+                if exec_error and not error:
+                    error = exec_error
+            else:
+                passed = False
+                if not error:
+                    error = "No Python code block found in response"
+
+            # ---- Persist trace ----
+            out_path = save_trace(
+                phase=args.phase,
+                problem=problem,
+                harness_id=harness_id,
+                harness_category=harness_category,
+                model=model,
+                raw_response=raw_response,
+                steps=steps,
+                latency_sec=latency_sec,
+                passed=passed,
+                raw_helix_transcript=transcript,
+                error=error,
+                output_dir=RAW_TRACES_DIR,
             )
 
-            # Extract python solution and verify tests
-            code = extract_python_code(helix_res["assistant_text"])
-            test_res = run_unit_tests(code, task["test_code"])
+            status = "[PASS]" if passed else "[FAIL]"
+            print(f" {status} steps={steps} lat={latency_sec:.1f}s -> {out_path.name}")
+            if passed:
+                success_count += 1
 
-            status_str = "PASSED" if test_res["passed"] else "FAILED"
-            print(f" {status_str} ({test_res['duration_sec']}s, steps: {helix_res['steps']})")
-
-            # Assemble full trace payload
-            trace_record = {
-                "phase": phase,
-                "timestamp": datetime.utcnow().isoformat(),
-                "task_id": task_id,
-                "task_title": task["title"],
-                "difficulty": task["difficulty"],
-                "prompt": task["prompt"],
-                "harness_id": h_id,
-                "harness_category": harness["category"],
-                "model": model,
-                "provider": provider,
-                "steps": helix_res["steps"],
-                "latency_sec": helix_res["latency_sec"],
-                "assistant_solution": helix_res["assistant_text"],
-                "extracted_code": code,
-                "test_result": test_res,
-                "passed": test_res["passed"],
-                "raw_helix_transcript": helix_res["transcript"],
-                "error": helix_res["stderr"] or test_res["stderr"],
-            }
-
-            out_filename = f"{phase}_{task_id}_{h_id}.json"
-            out_path = RAW_TRACES_DIR / out_filename
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(trace_record, f, indent=2, ensure_ascii=False)
-
-            summary_records.append({
-                "phase": phase,
-                "task_id": task_id,
-                "harness_id": h_id,
-                "passed": test_res["passed"],
-                "steps": helix_res["steps"],
-            })
-
-    print(f"\n[DONE] Successfully saved {len(summary_records)} raw trajectory traces to:")
-    print(f"       {RAW_TRACES_DIR}\n")
+    print("\n" + "=" * 65)
+    print(f"  Evaluation complete: {success_count}/{total} passed")
+    print(f"  Traces saved to: {RAW_TRACES_DIR}")
+    print("=" * 65)
 
 
-# ------------------------------------------------------------------------------
-# 5. CLI Arguments
-# ------------------------------------------------------------------------------
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run HELIX Evaluation across Harnesses")
-    parser.add_argument("--phase", type=str, choices=["build", "rebuild"], default="build",
-                        help="Phase of the closed-loop cycle (build = Theta_0, rebuild = Theta_1)")
-    parser.add_argument("--limit", type=int, default=5,
-                        help="Number of benchmark tasks to run")
-    parser.add_argument("--harness", type=str, default=None,
-                        help="Filter by specific harness ID (minimal, pi-mono, hermes-agent, opencode)")
-    parser.add_argument("--model", type=str, default=None,
-                        help="Override model name")
-    parser.add_argument("--base-url", type=str, default=None,
-                        help="Override LLM endpoint base URL")
+# =============================================================================
+# 8. CLI Argument Parsing
+# =============================================================================
 
-    args = parser.parse_args()
-    run_evaluation(
-        phase=args.phase,
-        limit=args.limit,
-        selected_harness_id=args.harness,
-        override_model=args.model,
-        override_base_url=args.base_url,
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="HELIX Closed-Loop Evaluation Runner",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+            Examples:
+              # Offline pipeline validation (no GPU):
+              python closed-loop/scripts/02_run_helix_eval.py --phase build --mode dry-run --limit 3
+
+              # Live evaluation against Modal vLLM (BUILD phase, base model):
+              python closed-loop/scripts/02_run_helix_eval.py --phase build --mode live
+
+              # Live evaluation (REBUILD phase, LoRA adapter):
+              python closed-loop/scripts/02_run_helix_eval.py --phase rebuild --mode live
+        """),
     )
+    parser.add_argument(
+        "--phase",
+        choices=["build", "rebuild"],
+        required=True,
+        help="Pipeline phase: 'build' uses the base model; 'rebuild' uses the LoRA adapter.",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help=(
+            "Base URL for the OpenAI-compatible vLLM endpoint "
+            "(e.g. https://<workspace>--helix-vllm-engine-vllmserver-serve.modal.run/v1). "
+            "Defaults to HELIX_LIVE_BASE_URL env var. Not required in dry-run mode."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            f"Model name to pass to the API. "
+            f"Defaults to '{BASE_MODEL_NAME}' for --phase build "
+            f"or '{LORA_ADAPTER_NAME}' for --phase rebuild."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["live", "dry-run"],
+        default="dry-run",
+        help=(
+            "Execution mode: 'live' calls the real vLLM API; "
+            "'dry-run' generates deterministic mock solutions locally (no GPU needed)."
+        ),
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Limit the number of benchmark problems to run (1-10). Default: 10.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    args.limit = max(1, min(args.limit, len(BENCHMARK_PROBLEMS)))
+    run_evaluation(args)
+
+
+if __name__ == "__main__":
+    main()

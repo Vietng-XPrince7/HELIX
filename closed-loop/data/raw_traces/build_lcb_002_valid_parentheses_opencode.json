@@ -2,10 +2,17 @@
   "phase": "build",
   "task_id": "lcb_002_valid_parentheses",
   "task_title": "Valid Parentheses String",
-  "prompt": "Write python solution for Valid Parentheses String.",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `is_valid(s: str) -> bool` that returns True if the input string of brackets `()[]{}` is valid (every open bracket is closed by the same type in the correct order).",
   "harness_id": "opencode",
+  "harness_category": "complex",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "provider": "openai-compatible",
   "steps": 1,
   "latency_sec": 1.2,
-  "assistant_solution": "```python\ndef is_valid(s: str) -> bool:\n    stack = []\n    mapping = {')': '(', '}': '{', ']': '['}\n    for char in s:\n        if char in mapping:\n            top = stack.pop() if stack else '#'\n            if mapping[char] != top: return False\n        else:\n            stack.append(char)\n    return not stack\n```",
-  "passed": true
+  "assistant_solution": "```python\ndef is_valid(s: str) -> bool:\n    stack: list[str] = []\n    mapping = {')': '(', '}': '{', ']': '['}\n    for ch in s:\n        if ch in mapping:\n            if not stack or stack[-1] != mapping[ch]:\n                return False\n            stack.pop()\n        else:\n            stack.append(ch)\n    return not stack\n```",
+  "passed": true,
+  "raw_helix_transcript": [],
+  "error": "",
+  "timestamp": "2026-10-28T17:12:02.275763+00:00"
 }

@@ -2,10 +2,17 @@
   "phase": "build",
   "task_id": "lcb_001_two_sum",
   "task_title": "Two Sum with Indices",
-  "prompt": "Write python solution for Two Sum with Indices.",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `two_sum(nums: list[int], target: int) -> list[int]` that returns the indices of the two numbers in `nums` that add up to `target`. You may assume each input has exactly one solution and you may not use the same element twice. Return indices in ascending order.",
   "harness_id": "minimal",
+  "harness_category": "minimal",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "provider": "openai-compatible",
   "steps": 5,
   "latency_sec": 5.8,
-  "assistant_solution": "```python\ndef two_sum(nums, target):\n    # inefficient brute force with syntax error\n    for i in range(len(nums))\n        for j in range(i+1, len(nums)):\n            if nums[i]+nums[j] == target: return [i,j]\n```",
-  "passed": false
+  "assistant_solution": "```python\ndef two_sum(nums, target):\n    for i in range(len(nums))\n        for j in range(i+1, len(nums)):\n            if nums[i]+nums[j]==target: return [i,j]\n```",
+  "passed": false,
+  "raw_helix_transcript": [],
+  "error": "File \"<string>\", line 2\n    for i in range(len(nums))\n                             ^\nSyntaxError: expected ':'",
+  "timestamp": "2026-10-28T17:12:01.949856+00:00"
 }

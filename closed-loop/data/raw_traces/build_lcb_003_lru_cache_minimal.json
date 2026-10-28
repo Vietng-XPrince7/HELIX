@@ -2,10 +2,17 @@
   "phase": "build",
   "task_id": "lcb_003_lru_cache",
   "task_title": "LRU Cache Implementation",
-  "prompt": "Write python solution for LRU Cache Implementation.",
+  "difficulty": "medium",
+  "prompt": "Implement an LRU (Least Recently Used) cache class `LRUCache` in Python with O(1) average-time `get(key)` and `put(key, value)` operations. `get` returns -1 if key does not exist. `put` evicts the least recently used item when capacity is exceeded.",
   "harness_id": "minimal",
+  "harness_category": "minimal",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "provider": "openai-compatible",
   "steps": 5,
   "latency_sec": 5.8,
-  "assistant_solution": "```python\nclass LRUCache:\n    def __init__(self, capacity):\n        self.d = {}\n    def get(self, key): return self.d.get(key, -1)\n    def put(self, key, value): self.d[key] = value # no eviction\n```",
-  "passed": false
+  "assistant_solution": "```python\nclass LRUCache:\n    def __init__(self, capacity):\n        self.d = {}\n    def get(self, key): return self.d.get(key, -1)\n    def put(self, key, value): self.d[key] = value\n```",
+  "passed": false,
+  "raw_helix_transcript": [],
+  "error": "Traceback (most recent call last):\n  File \"<string>\", line 13, in <module>\nAssertionError",
+  "timestamp": "2026-10-28T17:12:02.318836+00:00"
 }

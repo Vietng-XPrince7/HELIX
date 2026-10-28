@@ -2,10 +2,17 @@
   "phase": "build",
   "task_id": "lcb_001_two_sum",
   "task_title": "Two Sum with Indices",
-  "prompt": "Write python solution for Two Sum with Indices.",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `two_sum(nums: list[int], target: int) -> list[int]` that returns the indices of the two numbers in `nums` that add up to `target`. You may assume each input has exactly one solution and you may not use the same element twice. Return indices in ascending order.",
   "harness_id": "hermes-agent",
+  "harness_category": "advanced",
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "provider": "openai-compatible",
   "steps": 2,
   "latency_sec": 2.1,
-  "assistant_solution": "```python\ndef two_sum(nums, target):\n    lookup = {}\n    for i, num in enumerate(nums):\n        if target - num in lookup:\n            return [lookup[target - num], i]\n        lookup[num] = i\n    return []\n```",
-  "passed": true
+  "assistant_solution": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    lookup = {}\n    for i, n in enumerate(nums):\n        if target - n in lookup:\n            return [lookup[target - n], i]\n        lookup[n] = i\n    return []\n```",
+  "passed": true,
+  "raw_helix_transcript": [],
+  "error": "",
+  "timestamp": "2026-10-28T17:12:02.033050+00:00"
 }
