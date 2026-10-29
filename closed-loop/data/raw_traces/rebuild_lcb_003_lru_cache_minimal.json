@@ -1,11 +1,29 @@
 {
   "phase": "rebuild",
   "task_id": "lcb_003_lru_cache",
-  "task_title": "LRU Cache Implementation",
-  "prompt": "Write python solution for LRU Cache Implementation.",
+  "task_title": "LRU Cache Implementation with Eviction Return",
+  "difficulty": "medium",
+  "prompt": "Implement an LRU (Least Recently Used) cache class `LRUCache(capacity: int)` in Python with O(1) average-time `get(key)` and `put(key, value)` operations. `get` returns -1 if key does not exist. `put` inserts or updates the key; if inserting a new key causes capacity to be exceeded, evict the least recently used item AND return the evicted key. If no eviction occurred, `put` must return None.",
   "harness_id": "minimal",
-  "steps": 2,
-  "latency_sec": 2.2,
-  "assistant_solution": "```python\nclass LRUCache:\n    def __init__(self, capacity: int):\n        from collections import OrderedDict\n        self.cap = capacity\n        self.cache = OrderedDict()\n    def get(self, key: int) -> int:\n        if key not in self.cache: return -1\n        self.cache.move_to_end(key)\n        return self.cache[key]\n    def put(self, key: int, value: int) -> None:\n        if key in self.cache: self.cache.move_to_end(key)\n        self.cache[key] = value\n        if len(self.cache) > self.cap: self.cache.popitem(last=False)\n```",
-  "passed": true
+  "harness_category": "minimal",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 20.328,
+  "assistant_solution": "```python\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.cache = {}\n        self.order = []\n\n    def get(self, key):\n        if key not in self.cache:\n            return -1\n        else:\n            # Move the accessed key to the end of the order list\n            self.order.remove(key)\n            self.order.append(key)\n            return self.cache[key]\n\n    def put(self, key, value):\n        if key in self.cache:\n            # Update the value and move the key to the end of the order list\n            self.cache[key] = value\n            self.order.remove(key)\n            self.order.append(key)\n        else:\n            if len(self.cache) >= self.capacity:\n                # Evict the least recently used item\n                evicted_key = self.order.pop(0)\n                del self.cache[evicted_key]\n                return evicted_key\n            else:\n                # Add the new key-value pair to the cache and order list\n                self.cache[key] = value\n                self.order.append(key)\n                return None\n\n# Example usage:\ncache = LRUCache(2)\nprint(cache.put(1, 1))  # Output: None\nprint(cache.put(2, 2))  # Output: None\nprint(cache.get(1))     # Output: 1\nprint(cache.put(3, 3))  # Output: 2\nprint(cache.get(2))     # Output: -1\n```",
+  "passed": false,
+  "test_result": {
+    "passed": false,
+    "error": "Traceback (most recent call last):\n  File \"<string>\", line 51, in <module>\nAssertionError"
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.cache = {}\n        self.order = []\n\n    def get(self, key):\n        if key not in self.cache:\n            return -1\n        else:\n            # Move the accessed key to the end of the order list\n            self.order.remove(key)\n            self.order.append(key)\n            return self.cache[key]\n\n    def put(self, key, value):\n        if key in self.cache:\n            # Update the value and move the key to the end of the order list\n            self.cache[key] = value\n            self.order.remove(key)\n            self.order.append(key)\n        else:\n            if len(self.cache) >= self.capacity:\n                # Evict the least recently used item\n                evicted_key = self.order.pop(0)\n                del self.cache[evicted_key]\n                return evicted_key\n            else:\n                # Add the new key-value pair to the cache and order list\n                self.cache[key] = value\n                self.order.append(key)\n                return None\n\n# Example usage:\ncache = LRUCache(2)\nprint(cache.put(1, 1))  # Output: None\nprint(cache.put(2, 2))  # Output: None\nprint(cache.get(1))     # Output: 1\nprint(cache.put(3, 3))  # Output: 2\nprint(cache.get(2))     # Output: -1\n```\n\nThis implementation uses a dictionary `cache` to store the key-value pairs and a list `order` to maintain the order of keys based on their last access time. The `get` method retrieves the value associated with a key and moves it to the end of the `order` list to mark it as recently used. The `put` method either updates an existing key's value and marks it as recently used, or inserts a new key-value pair. If the cache exceeds its capacity, it removes the least recently used item from both the `cache` and `order`.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "Traceback (most recent call last):\n  File \"<string>\", line 51, in <module>\nAssertionError",
+  "timestamp": "2026-10-29T10:37:13.766671+00:00"
 }

@@ -2,10 +2,28 @@
   "phase": "rebuild",
   "task_id": "lcb_001_two_sum",
   "task_title": "Two Sum with Indices",
-  "prompt": "Write python solution for Two Sum with Indices.",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `two_sum(nums: list[int], target: int) -> list[int]` that returns the indices of the two numbers in `nums` that add up to `target`. You may assume each input has exactly one solution and you may not use the same element twice. Return indices in ascending order.",
   "harness_id": "opencode",
+  "harness_category": "complex",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
   "steps": 1,
-  "latency_sec": 1.1,
-  "assistant_solution": "```python\ndef two_sum(nums, target):\n    lookup = {}\n    for i, num in enumerate(nums):\n        if target - num in lookup:\n            return [lookup[target - num], i]\n        lookup[num] = i\n    return []\n```",
-  "passed": true
+  "latency_sec": 4.313,
+  "assistant_solution": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return sorted([num_to_index[complement], i])\n        num_to_index[num] = i\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return sorted([num_to_index[complement], i])\n        num_to_index[num] = i\n```",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:29:38.973793+00:00"
 }

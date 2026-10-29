@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_005_binary_search",
+  "task_title": "Binary Search",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `search(nums: list[int], target: int) -> int` that performs binary search on a sorted list `nums` and returns the index of `target`, or -1 if it is not found. Must run in O(log n) time.",
+  "harness_id": "pi-mono",
+  "harness_category": "standard",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 24.422,
+  "assistant_solution": "```python\ndef search(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    \n    while left <= right:\n        mid = (left + right) // 2\n        \n        if nums[mid] == target:\n            return mid\n        elif nums[mid] > target:\n            right = mid - 1\n        else:\n            left = mid + 1\n    \n    return -1\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "To implement a binary search algorithm in Python, we need to follow these steps:\n\n1. Initialize two pointers, `left` and `right`, to represent the current search range within the list.\n2. While the `left` pointer is less than or equal to the `right` pointer:\n   - Calculate the middle index `mid`.\n   - Compare the element at `mid` with the `target`.\n   - If the element at `mid` is equal to the `target`, return `mid`.\n   - If the element at `mid` is greater than the `target`, adjust the `right` pointer to `mid - 1`.\n   - If the element at `mid` is less than the `target`, adjust the `left` pointer to `mid + 1`.\n3. If the loop exits without finding the `target`, return -1.\n\nHere's the complete implementation of the `search` function:\n\n```python\ndef search(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    \n    while left <= right:\n        mid = (left + right) // 2\n        \n        if nums[mid] == target:\n            return mid\n        elif nums[mid] > target:\n            right = mid - 1\n        else:\n            left = mid + 1\n    \n    return -1\n```\n\n### Explanation:\n- **Initialization**: We start by setting `left` to 0 and `right` to the last index of the list (`len(nums) - 1`).\n- **Loop**: The loop continues as long as `left` is less than or equal to `right`.\n  - **Mid Calculation**: We calculate the middle index `mid` using integer division `(left + right) // 2`.\n  - **Comparison**:\n    - If `nums[mid]` equals `target`, we return `mid` because we have found the target.\n    - If `nums[mid]` is greater than `target`, we move the `right` pointer to `mid - 1` to search in the left half.\n    - If `nums[mid]` is less than `target`, we move the `left` pointer to `mid + 1` to search in the right half.\n- **Return**: If the loop exits without finding the target, we return -1 indicating that the target is not present in the list.\n\nThis implementation ensures that the binary search runs in \\(O(\\log n)\\) time complexity, which is efficient for large lists.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:45:40.658579+00:00"
+}

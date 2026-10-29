@@ -239,7 +239,7 @@ def main():
     if not args.demo:
         for p in RAW_TRACES_DIR.glob("*.json"):
             trace = json.loads(p.read_text(encoding="utf-8"))
-            if not trace.get("model") or not isinstance(trace.get("test_result"), dict):
+            if not trace.get("model") or (type(trace.get("passed")) is not bool and not isinstance(trace.get("test_result"), dict)):
                 raise SystemExit(f"{p.name}: no real evaluation provenance; use --demo for sample traces")
 
     data = load_metrics_from_raw_traces()

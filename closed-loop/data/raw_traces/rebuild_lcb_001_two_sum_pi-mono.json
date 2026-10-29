@@ -2,10 +2,28 @@
   "phase": "rebuild",
   "task_id": "lcb_001_two_sum",
   "task_title": "Two Sum with Indices",
-  "prompt": "Write python solution for Two Sum with Indices.",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `two_sum(nums: list[int], target: int) -> list[int]` that returns the indices of the two numbers in `nums` that add up to `target`. You may assume each input has exactly one solution and you may not use the same element twice. Return indices in ascending order.",
   "harness_id": "pi-mono",
-  "steps": 2,
-  "latency_sec": 2.5,
-  "assistant_solution": "```python\ndef two_sum(nums, target):\n    lookup = {}\n    for i, num in enumerate(nums):\n        if target - num in lookup:\n            return [lookup[target - num], i]\n        lookup[num] = i\n    return []\n```",
-  "passed": true
+  "harness_category": "standard",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 26.406,
+  "assistant_solution": "```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    # Dictionary to store the value and its index\n    num_dict = {}\n    \n    # Iterate through the list with index and value\n    for i, num in enumerate(nums):\n        # Calculate the complement\n        complement = target - num\n        \n        # Check if the complement exists in the dictionary\n        if complement in num_dict:\n            # Return the indices in ascending order\n            return sorted([num_dict[complement], i])\n        \n        # Add the current value and its index to the dictionary\n        num_dict[num] = i\n\n# Example usage:\nnums = [2, 7, 11, 15]\ntarget = 9\nprint(two_sum(nums, target))  # Output: [0, 1]\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "To solve the problem of finding two numbers in a list that add up to a given target, we can use a dictionary to store the values and their corresponding indices as we iterate through the list. This approach ensures that we can find the solution in linear time, O(n), where n is the number of elements in the list.\n\nHere's a step-by-step breakdown of the solution:\n\n1. Initialize an empty dictionary to store the values and their indices.\n2. Iterate through the list with both the index and the value.\n3. For each value, calculate the complement by subtracting the value from the target.\n4. Check if the complement exists in the dictionary:\n   - If it does, return the indices of the complement and the current value (in ascending order).\n   - If it doesn't, add the current value and its index to the dictionary.\n5. Since the problem guarantees exactly one solution, the loop will always return a result.\n\nHere's the complete implementation:\n\n```python\ndef two_sum(nums: list[int], target: int) -> list[int]:\n    # Dictionary to store the value and its index\n    num_dict = {}\n    \n    # Iterate through the list with index and value\n    for i, num in enumerate(nums):\n        # Calculate the complement\n        complement = target - num\n        \n        # Check if the complement exists in the dictionary\n        if complement in num_dict:\n            # Return the indices in ascending order\n            return sorted([num_dict[complement], i])\n        \n        # Add the current value and its index to the dictionary\n        num_dict[num] = i\n\n# Example usage:\nnums = [2, 7, 11, 15]\ntarget = 9\nprint(two_sum(nums, target))  # Output: [0, 1]\n```\n\n### Explanation:\n- **Dictionary (`num_dict`)**: This stores each number and its index as we iterate through the list. This allows us to quickly check if the complement of the current number exists in the list.\n- **Iteration**: We use `enumerate` to get both the index (`i`) and the value (`num`) of each element in the list.\n- **Complement Calculation**: For each number, we calculate its complement by subtracting the number from the target.\n- **Check Complement**: If the complement is found in the dictionary, it means we have already seen a number that, when added to the current number, equals the target. We then return the indices of these two numbers in ascending order.\n- **Add to Dictionary**: If the complement is not found, we add the current number and its index to the dictionary and continue iterating.\n\nThis solution efficiently finds the two indices in linear time, making it suitable for large lists.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:29:20.309588+00:00"
 }

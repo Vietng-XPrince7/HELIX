@@ -892,7 +892,12 @@ def wait_for_server_ready(base_url: str, timeout_sec: int = 180, poll_interval_s
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status == 200:
-                    print(f"[Health Check] Server is healthy and ready! ({elapsed}s elapsed)\n")
+                    try:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        lora_info = f"lora_enabled={data.get('lora_enabled')}, adapter={data.get('adapter')}"
+                    except Exception:
+                        lora_info = "standard vLLM"
+                    print(f"[Health Check] Server is healthy and ready! [{lora_info}] ({elapsed}s elapsed)\n")
                     return True
                 print(f"[Health Check] Received status {resp.status}... ({elapsed}s elapsed)")
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
@@ -1051,6 +1056,7 @@ def save_trace(
         "latency_sec": round(latency_sec, 3),
         "assistant_solution": assistant_solution,
         "passed": passed,
+        "test_result": {"passed": passed, "error": error},
         "raw_helix_transcript": raw_helix_transcript,
         "error": error,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1082,7 +1088,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
         model = BASE_MODEL_NAME
 
     # Resolve base URL (live mode only)
-    base_url = args.base_url or os.environ.get("HELIX_LIVE_BASE_URL", "")
+    base_url = (args.base_url or os.environ.get("HELIX_LIVE_BASE_URL", "")).strip()
     api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
 
     if args.mode == "live":

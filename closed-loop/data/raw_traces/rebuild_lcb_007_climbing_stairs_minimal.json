@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_007_climbing_stairs",
+  "task_title": "Climbing Stairs (DP)",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `climb_stairs(n: int) -> int` that returns the number of distinct ways to climb `n` stairs if you can take 1 or 2 steps at a time.",
+  "harness_id": "minimal",
+  "harness_category": "minimal",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 16.265,
+  "assistant_solution": "```python\ndef climb_stairs(n: int) -> int:\n    # Base cases for n=0 and n=1\n    if n == 0:\n        return 1\n    elif n == 1:\n        return 1\n    \n    # Initialize an array to store the number of ways to reach each step\n    dp = [0] * (n + 1)\n    dp[0], dp[1] = 1, 1\n    \n    # Fill the array using the recurrence relation\n    for i in range(2, n + 1):\n        dp[i] = dp[i - 1] + dp[i - 2]\n    \n    # The answer is the number of ways to reach the nth step\n    return dp[n]\n\n# Example usage\nprint(climb_stairs(3))  # Output: 3\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef climb_stairs(n: int) -> int:\n    # Base cases for n=0 and n=1\n    if n == 0:\n        return 1\n    elif n == 1:\n        return 1\n    \n    # Initialize an array to store the number of ways to reach each step\n    dp = [0] * (n + 1)\n    dp[0], dp[1] = 1, 1\n    \n    # Fill the array using the recurrence relation\n    for i in range(2, n + 1):\n        dp[i] = dp[i - 1] + dp[i - 2]\n    \n    # The answer is the number of ways to reach the nth step\n    return dp[n]\n\n# Example usage\nprint(climb_stairs(3))  # Output: 3\n```\n\nIn this solution, we use dynamic programming to solve the problem efficiently. We define a list `dp` where `dp[i]` represents the number of ways to reach the `i-th` step. The base cases are set for `n=0` and `n=1`, both of which have only one way to be reached. For each subsequent step from 2 to `n`, the number of ways to reach it is the sum of the ways to reach the previous step (`dp[i-1]`) and the step before that (`dp[i-2]`). This is because from either of these two steps, we can take a single step to reach the current step. Finally, the value at `dp[n]` gives us the total number of distinct ways to climb `n` stairs.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:47:35.466250+00:00"
+}

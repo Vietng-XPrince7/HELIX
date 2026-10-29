@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_006_max_subarray",
+  "task_title": "Maximum Subarray Sum and Slice",
+  "difficulty": "medium",
+  "prompt": "Write a Python function `max_sub_array(nums: list[int]) -> tuple[int, list[int]]` that finds the contiguous subarray with the largest sum and returns a tuple `(max_sum, subarray)`. If `nums` is empty, return `(0, [])`.",
+  "harness_id": "opencode",
+  "harness_category": "complex",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 7.437,
+  "assistant_solution": "```python\nfrom typing import List, Tuple\n\ndef max_sub_array(nums: List[int]) -> Tuple[int, List[int]]:\n    if not nums:\n        return 0, []\n    \n    max_current = max_global = nums[0]\n    start = end = s = 0\n    \n    for i in range(1, len(nums)):\n        if nums[i] > max_current + nums[i]:\n            max_current = nums[i]\n            s = i\n        else:\n            max_current += nums[i]\n        \n        if max_current > max_global:\n            max_global = max_current\n            start = s\n            end = i\n    \n    return max_global, nums[start:end+1]\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\nfrom typing import List, Tuple\n\ndef max_sub_array(nums: List[int]) -> Tuple[int, List[int]]:\n    if not nums:\n        return 0, []\n    \n    max_current = max_global = nums[0]\n    start = end = s = 0\n    \n    for i in range(1, len(nums)):\n        if nums[i] > max_current + nums[i]:\n            max_current = nums[i]\n            s = i\n        else:\n            max_current += nums[i]\n        \n        if max_current > max_global:\n            max_global = max_current\n            start = s\n            end = i\n    \n    return max_global, nums[start:end+1]\n```",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:47:18.967719+00:00"
+}

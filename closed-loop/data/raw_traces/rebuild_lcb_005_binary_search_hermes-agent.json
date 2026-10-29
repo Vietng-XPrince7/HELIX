@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_005_binary_search",
+  "task_title": "Binary Search",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `search(nums: list[int], target: int) -> int` that performs binary search on a sorted list `nums` and returns the index of `target`, or -1 if it is not found. Must run in O(log n) time.",
+  "harness_id": "hermes-agent",
+  "harness_category": "advanced",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 24.437,
+  "assistant_solution": "```python\ndef search(nums: list[int], target: int) -> int:\n    \"\"\"\n    Perform binary search on a sorted list nums to find the index of target.\n    \n    Args:\n    nums (list[int]): A sorted list of integers.\n    target (int): The integer value to search for.\n\n    Returns:\n    int: The index of target if found, otherwise -1.\n    \"\"\"\n    left, right = 0, len(nums) - 1\n    \n    while left <= right:\n        mid = (left + right) // 2\n        \n        # Check if the middle element is the target\n        if nums[mid] == target:\n            return mid\n        \n        # Decide which half to continue searching\n        elif nums[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n            \n    # Target not found\n    return -1\n\n# Example usage:\n# result = search([1, 2, 3, 4, 5, 6, 7, 8, 9], 4)\n# print(result)  # Output should be 3\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef search(nums: list[int], target: int) -> int:\n    \"\"\"\n    Perform binary search on a sorted list nums to find the index of target.\n    \n    Args:\n    nums (list[int]): A sorted list of integers.\n    target (int): The integer value to search for.\n\n    Returns:\n    int: The index of target if found, otherwise -1.\n    \"\"\"\n    left, right = 0, len(nums) - 1\n    \n    while left <= right:\n        mid = (left + right) // 2\n        \n        # Check if the middle element is the target\n        if nums[mid] == target:\n            return mid\n        \n        # Decide which half to continue searching\n        elif nums[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n            \n    # Target not found\n    return -1\n\n# Example usage:\n# result = search([1, 2, 3, 4, 5, 6, 7, 8, 9], 4)\n# print(result)  # Output should be 3\n```\n\n### Explanation:\n1. **Initialization**: We start by initializing two pointers, `left` at the beginning of the list (`0`) and `right` at the end of the list (`len(nums) - 1`).\n\n2. **Loop**: We enter a loop that continues as long as `left` is less than or equal to `right`.\n\n3. **Midpoint Calculation**: Inside the loop, we calculate the midpoint `mid` using integer division `(left + right) // 2`. This ensures that `mid` is always an integer.\n\n4. **Comparison**:\n   - If `nums[mid]` is equal to `target`, we have found the target and return its index `mid`.\n   - If `nums[mid]` is less than `target`, it means the target must be in the right half of the list, so we update `left` to `mid + 1`.\n   - If `nums[mid]` is greater than `target`, it means the target must be in the left half of the list, so we update `right` to `mid - 1`.\n\n5. **Termination**: If the loop exits without finding the target, we return `-1` indicating that the target is not present in the list.\n\nThis implementation ensures that the search runs in \\(O(\\log n)\\) time complexity, making it efficient for large lists.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:46:05.415261+00:00"
+}

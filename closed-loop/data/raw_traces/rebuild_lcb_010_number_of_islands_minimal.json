@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_010_number_of_islands",
+  "task_title": "Number of Islands (BFS/DFS)",
+  "difficulty": "medium",
+  "prompt": "Write a Python function `num_islands(grid: list[list[str]]) -> int` that counts the number of islands in a 2D binary grid. An island is a group of adjacent '1's (land) surrounded by '0's (water). Connections are 4-directional.",
+  "harness_id": "minimal",
+  "harness_category": "minimal",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 14.015,
+  "assistant_solution": "```python\ndef num_islands(grid):\n    if not grid:\n        return 0\n\n    def dfs(i, j):\n        # Check boundaries and if it's water or already visited land\n        if i < 0 or i >= len(grid) or j < 0 or j >= len(grid[0]) or grid[i][j] == '0':\n            return\n        # Mark the cell as visited by setting it to '0'\n        grid[i][j] = '0'\n        # Explore all four directions\n        dfs(i + 1, j)\n        dfs(i - 1, j)\n        dfs(i, j + 1)\n        dfs(i, j - 1)\n\n    count = 0\n    for i in range(len(grid)):\n        for j in range(len(grid[0])):\n            if grid[i][j] == '1':\n                # Found an unvisited island\n                dfs(i, j)\n                # Increment the island count\n                count += 1\n    return count\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef num_islands(grid):\n    if not grid:\n        return 0\n\n    def dfs(i, j):\n        # Check boundaries and if it's water or already visited land\n        if i < 0 or i >= len(grid) or j < 0 or j >= len(grid[0]) or grid[i][j] == '0':\n            return\n        # Mark the cell as visited by setting it to '0'\n        grid[i][j] = '0'\n        # Explore all four directions\n        dfs(i + 1, j)\n        dfs(i - 1, j)\n        dfs(i, j + 1)\n        dfs(i, j - 1)\n\n    count = 0\n    for i in range(len(grid)):\n        for j in range(len(grid[0])):\n            if grid[i][j] == '1':\n                # Found an unvisited island\n                dfs(i, j)\n                # Increment the island count\n                count += 1\n    return count\n```\nThis Python function uses Depth-First Search (DFS) to explore each island and mark its cells as visited by changing them to '0'. It iterates through each cell in the grid, and whenever it finds an unvisited '1', it initiates a DFS from that cell to mark the entire island. The function counts and returns the total number of islands found.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:56:42.806946+00:00"
+}

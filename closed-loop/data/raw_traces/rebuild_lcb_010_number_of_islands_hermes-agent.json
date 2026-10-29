@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_010_number_of_islands",
+  "task_title": "Number of Islands (BFS/DFS)",
+  "difficulty": "medium",
+  "prompt": "Write a Python function `num_islands(grid: list[list[str]]) -> int` that counts the number of islands in a 2D binary grid. An island is a group of adjacent '1's (land) surrounded by '0's (water). Connections are 4-directional.",
+  "harness_id": "hermes-agent",
+  "harness_category": "advanced",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 24.829,
+  "assistant_solution": "```python\ndef num_islands(grid: list[list[str]]) -> int:\n    if not grid or not grid[0]:\n        return 0\n    \n    rows, cols = len(grid), len(grid[0])\n    count = 0\n    \n    def dfs(r, c):\n        # Check for out-of-bounds indices or water cells\n        if r < 0 or r >= rows or c < 0 or c >= cols or grid[r][c] == '0':\n            return\n        \n        # Mark the cell as visited by setting it to '0'\n        grid[r][c] = '0'\n        \n        # Explore all four directions\n        dfs(r + 1, c)\n        dfs(r - 1, c)\n        dfs(r, c + 1)\n        dfs(r, c - 1)\n    \n    # Iterate over each cell in the grid\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == '1':\n                # Found an unvisited land cell, start DFS\n                dfs(r, c)\n                # Increment island count\n                count += 1\n    \n    return count\n\n# Example usage:\ngrid = [\n    [\"1\", \"1\", \"0\", \"0\", \"0\"],\n    [\"1\", \"1\", \"0\", \"0\", \"0\"],\n    [\"0\", \"0\", \"1\", \"0\", \"0\"],\n    [\"0\", \"0\", \"0\", \"1\", \"1\"]\n]\nprint(num_islands(grid))  # Output: 3\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef num_islands(grid: list[list[str]]) -> int:\n    if not grid or not grid[0]:\n        return 0\n    \n    rows, cols = len(grid), len(grid[0])\n    count = 0\n    \n    def dfs(r, c):\n        # Check for out-of-bounds indices or water cells\n        if r < 0 or r >= rows or c < 0 or c >= cols or grid[r][c] == '0':\n            return\n        \n        # Mark the cell as visited by setting it to '0'\n        grid[r][c] = '0'\n        \n        # Explore all four directions\n        dfs(r + 1, c)\n        dfs(r - 1, c)\n        dfs(r, c + 1)\n        dfs(r, c - 1)\n    \n    # Iterate over each cell in the grid\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == '1':\n                # Found an unvisited land cell, start DFS\n                dfs(r, c)\n                # Increment island count\n                count += 1\n    \n    return count\n\n# Example usage:\ngrid = [\n    [\"1\", \"1\", \"0\", \"0\", \"0\"],\n    [\"1\", \"1\", \"0\", \"0\", \"0\"],\n    [\"0\", \"0\", \"1\", \"0\", \"0\"],\n    [\"0\", \"0\", \"0\", \"1\", \"1\"]\n]\nprint(num_islands(grid))  # Output: 3\n```\n\n### Explanation:\n1. **Initialization**: The function first checks if the grid is empty. If it is, it returns 0 because there can't be any islands.\n2. **DFS Function**: The `dfs` function is defined to perform a depth-first search starting from a given cell `(r, c)`. It marks the current cell as visited by setting it to '0'. Then, it recursively visits all four possible directions (up, down, left, right).\n3. **Main Loop**: The main loop iterates over each cell in the grid. When it finds a '1' (indicating land), it calls the `dfs` function to mark the entire island as visited and increments the island count.\n4. **Return Result**: Finally, the function returns the total count of islands found.\n\nThis approach ensures that each cell is visited only once, making the time complexity O(m * n), where m is the number of rows and n is the number of columns in the grid.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:57:34.695547+00:00"
+}

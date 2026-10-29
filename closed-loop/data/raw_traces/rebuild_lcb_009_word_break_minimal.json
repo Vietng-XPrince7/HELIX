@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_009_word_break",
+  "task_title": "Word Break Sentences (DP/Backtracking)",
+  "difficulty": "medium",
+  "prompt": "Write a Python function `word_break(s: str, word_dict: list[str]) -> list[str]` that segments `s` into all possible valid space-separated sentences using words from `word_dict`. Return the list of sentences sorted in lexicographical order. If no valid sentence can be formed, return `[]`.",
+  "harness_id": "minimal",
+  "harness_category": "minimal",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 11.11,
+  "assistant_solution": "```python\ndef word_break(s: str, word_dict: list[str]) -> list[str]:\n    def backtrack(start):\n        if start == len(s):\n            result.append(' '.join(path))\n            return\n        for end in range(start + 1, len(s) + 1):\n            prefix = s[start:end]\n            if prefix in word_set:\n                path.append(prefix)\n                backtrack(end)\n                path.pop()\n\n    word_set = set(word_dict)\n    result = []\n    path = []\n    backtrack(0)\n    return sorted(result)\n\n# Example usage:\nprint(word_break(\"catsanddog\", [\"cat\",\"cats\",\"and\",\"sand\",\"dog\"]))  # Output: ['cat sand dog', 'cats and dog']\n```",
+  "passed": false,
+  "test_result": {
+    "passed": false,
+    "error": "Traceback (most recent call last):\n  File \"<string>\", line 26, in <module>\nAssertionError"
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef word_break(s: str, word_dict: list[str]) -> list[str]:\n    def backtrack(start):\n        if start == len(s):\n            result.append(' '.join(path))\n            return\n        for end in range(start + 1, len(s) + 1):\n            prefix = s[start:end]\n            if prefix in word_set:\n                path.append(prefix)\n                backtrack(end)\n                path.pop()\n\n    word_set = set(word_dict)\n    result = []\n    path = []\n    backtrack(0)\n    return sorted(result)\n\n# Example usage:\nprint(word_break(\"catsanddog\", [\"cat\",\"cats\",\"and\",\"sand\",\"dog\"]))  # Output: ['cat sand dog', 'cats and dog']\n```\n\nThis Python function uses backtracking to explore all possible ways to break the string `s` into words from `word_dict`. It maintains a current path of words being constructed and appends it to the result when a valid segmentation is found (i.e., when the entire string has been segmented). The result is then sorted in lexicographical order before being returned.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "Traceback (most recent call last):\n  File \"<string>\", line 26, in <module>\nAssertionError",
+  "timestamp": "2026-10-29T10:49:57.926237+00:00"
+}

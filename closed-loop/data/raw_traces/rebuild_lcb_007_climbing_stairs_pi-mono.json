@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_007_climbing_stairs",
+  "task_title": "Climbing Stairs (DP)",
+  "difficulty": "easy",
+  "prompt": "Write a Python function `climb_stairs(n: int) -> int` that returns the number of distinct ways to climb `n` stairs if you can take 1 or 2 steps at a time.",
+  "harness_id": "pi-mono",
+  "harness_category": "standard",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 31.672,
+  "assistant_solution": "```python\ndef climb_stairs(n: int) -> int:\n    # Base cases\n    if n == 0:\n        return 1\n    elif n == 1:\n        return 1\n    \n    # Create an array to store the number of ways to reach each step\n    ways = [0] * (n + 1)\n    \n    # Initialize the base cases\n    ways[0] = 1\n    ways[1] = 1\n    \n    # Fill the array using the recursive relation\n    for i in range(2, n + 1):\n        ways[i] = ways[i - 1] + ways[i - 2]\n    \n    # Return the number of ways to reach the nth step\n    return ways[n]\n\n# Example usage:\nprint(climb_stairs(2))  # Output: 2\nprint(climb_stairs(3))  # Output: 3\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "To solve this problem, we can use dynamic programming. The idea is to build up the solution for `n` steps using the solutions for smaller numbers of steps.\n\nHere's a step-by-step breakdown of the approach:\n\n1. **Base Cases**:\n   - If there are 0 steps, there is 1 way to stay on the ground (doing nothing).\n   - If there is 1 step, there is only 1 way to climb it (one 1-step).\n\n2. **Recursive Relation**:\n   - For any given step `i`, the number of ways to reach it is the sum of the ways to reach step `i-1` (by taking a single step from `i-1`) and the ways to reach step `i-2` (by taking two steps from `i-2`). This gives us the relation: `ways[i] = ways[i-1] + ways[i-2]`.\n\n3. **Dynamic Programming Array**:\n   - We'll use an array `ways` where `ways[i]` will store the number of ways to reach the `i-th` step.\n\n4. **Initialization**:\n   - Initialize the base cases: `ways[0] = 1` and `ways[1] = 1`.\n\n5. **Filling the DP Array**:\n   - Iterate from 2 to `n` and fill the array using the recursive relation.\n\n6. **Result**:\n   - The value at `ways[n]` will give us the number of ways to climb `n` steps.\n\nHere's the complete Python function implementing this approach:\n\n```python\ndef climb_stairs(n: int) -> int:\n    # Base cases\n    if n == 0:\n        return 1\n    elif n == 1:\n        return 1\n    \n    # Create an array to store the number of ways to reach each step\n    ways = [0] * (n + 1)\n    \n    # Initialize the base cases\n    ways[0] = 1\n    ways[1] = 1\n    \n    # Fill the array using the recursive relation\n    for i in range(2, n + 1):\n        ways[i] = ways[i - 1] + ways[i - 2]\n    \n    # Return the number of ways to reach the nth step\n    return ways[n]\n\n# Example usage:\nprint(climb_stairs(2))  # Output: 2\nprint(climb_stairs(3))  # Output: 3\n```\n\n### Explanation:\n- **Base Cases**: We handle the cases when `n` is 0 or 1 directly.\n- **DP Array Initialization**: We initialize an array `ways` with size `n+1` to store the number of ways to reach each step.\n- **Filling the Array**: We iterate from 2 to `n` and fill the array using the relation `ways[i] = ways[i-1] + ways[i-2]`.\n- **Result**: Finally, we return `ways[n]`, which contains the number of ways to climb `n` steps.\n\nThis approach ensures that we efficiently compute the number of ways to climb `n` steps using dynamic programming, with a time complexity of O(n) and a space complexity of O(n).",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:48:07.363912+00:00"
+}

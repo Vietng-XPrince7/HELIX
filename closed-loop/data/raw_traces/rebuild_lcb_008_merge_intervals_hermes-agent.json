@@ -1,0 +1,29 @@
+{
+  "phase": "rebuild",
+  "task_id": "lcb_008_merge_intervals",
+  "task_title": "Merge Overlapping Intervals with Count",
+  "difficulty": "medium",
+  "prompt": "Write a Python function `merge(intervals: list[list[int]]) -> list[dict]` that merges all overlapping or touching intervals (e.g. `[1, 4]` and `[4, 5]` merge into `[1, 5]`). Return each merged interval as a dictionary `{'start': int, 'end': int, 'count': int}` where `'count'` is the count of original intervals that were merged into it. The result list must be sorted by `'start'`.",
+  "harness_id": "hermes-agent",
+  "harness_category": "advanced",
+  "model": "helix-lora",
+  "provider": "openai-compatible",
+  "steps": 1,
+  "latency_sec": 12.844,
+  "assistant_solution": "```python\ndef merge(intervals: list[list[int]]) -> list[dict]:\n    if not intervals:\n        return []\n\n    # Sort intervals based on the start time\n    intervals.sort(key=lambda x: x[0])\n\n    merged = []\n    current_start, current_end = intervals[0]\n    count = 1\n\n    for start, end in intervals[1:]:\n        if start <= current_end:\n            # Merge overlapping intervals\n            current_end = max(current_end, end)\n            count += 1\n        else:\n            # Append the previous merged interval\n            merged.append({'start': current_start, 'end': current_end, 'count': count})\n            current_start, current_end = start, end\n            count = 1\n\n    # Append the last merged interval\n    merged.append({'start': current_start, 'end': current_end, 'count': count})\n\n    return merged\n```",
+  "passed": true,
+  "test_result": {
+    "passed": true,
+    "error": ""
+  },
+  "raw_helix_transcript": [
+    {
+      "step": 1,
+      "role": "assistant",
+      "content": "```python\ndef merge(intervals: list[list[int]]) -> list[dict]:\n    if not intervals:\n        return []\n\n    # Sort intervals based on the start time\n    intervals.sort(key=lambda x: x[0])\n\n    merged = []\n    current_start, current_end = intervals[0]\n    count = 1\n\n    for start, end in intervals[1:]:\n        if start <= current_end:\n            # Merge overlapping intervals\n            current_end = max(current_end, end)\n            count += 1\n        else:\n            # Append the previous merged interval\n            merged.append({'start': current_start, 'end': current_end, 'count': count})\n            current_start, current_end = start, end\n            count = 1\n\n    # Append the last merged interval\n    merged.append({'start': current_start, 'end': current_end, 'count': count})\n\n    return merged\n```\n\nThis function first sorts the intervals by their start times to ensure they are processed in order. It then iterates through the sorted intervals, merging them when they overlap or touch. Each merged interval's start, end, and count of original intervals are stored in a dictionary and added to the result list. Finally, the last merged interval is appended to complete the result.",
+      "finish_reason": "stop"
+    }
+  ],
+  "error": "",
+  "timestamp": "2026-10-29T10:49:36.441912+00:00"
+}

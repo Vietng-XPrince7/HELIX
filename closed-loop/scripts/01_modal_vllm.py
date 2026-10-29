@@ -143,7 +143,7 @@ class VLLMServer:
             cmd += [
                 "--enable-lora",
                 "--max-loras", "2",
-                "--max-lora-rank", "32",
+                "--max-lora-rank", "64",
                 "--lora-modules",
                 f"{LORA_ADAPTER_NAME}={lora_path}",
             ]
@@ -234,6 +234,15 @@ class VLLMServer:
             async with httpx.AsyncClient(base_url=target, timeout=5.0) as client:
                 try:
                     resp = await client.get("/health")
+                    if resp.status_code == 200:
+                        return fastapi.responses.JSONResponse(
+                            status_code=200,
+                            content={
+                                "status": "ok",
+                                "lora_enabled": self.lora_enabled,
+                                "adapter": LORA_ADAPTER_NAME if self.lora_enabled else None,
+                            },
+                        )
                     return fastapi.responses.Response(
                         content=resp.content,
                         status_code=resp.status_code,
@@ -261,6 +270,18 @@ class VLLMServer:
                 headers = dict(request.headers)
                 headers.pop("host", None)
                 body = await request.body()
+
+                # Ensure completion requests in REBUILD phase target the LoRA adapter
+                if self.lora_enabled and request.method == "POST" and "completions" in path:
+                    import json
+                    try:
+                        payload = json.loads(body.decode("utf-8"))
+                        if payload.get("model") in [MODEL_NAME, "default", None]:
+                            payload["model"] = LORA_ADAPTER_NAME
+                            body = json.dumps(payload).encode("utf-8")
+                            headers["content-length"] = str(len(body))
+                    except Exception:
+                        pass
 
                 rp = await client.request(
                     request.method, url, headers=headers, content=body
